@@ -107,7 +107,6 @@ marveen-mail-ugyfelkod*
 # Python bytecode cache
 __pycache__/
 *.pyc
-
 # Claude Code Channels runtime config/session dir (sessions, history, tokens,
 # plugins, skills). Per-install runtime state -- never source, never commit.
 .channels-config/
@@ -162,6 +161,7 @@ supabase/.temp
 # Install-local hook scripts named by store/extra-hooks.json (docs/config-reference.md)
 local-hooks/
 
+<<<<<<< HEAD
 # VOICETOKENLEAK1101 (Dani 64894): the main agent's kanban recipe payload files (written in the project root)
 /kanban-*-eredmeny.txt
 /kanban-*-bizonyitek.txt
@@ -169,3 +169,7 @@ local-hooks/
 
 # VOICETOKENLEAK1101 PR-A1 (Dani 64941/2): the main agent's dashboard-API payload files (written in the project root)
 /api-*.txt
+=======
+# Hotmail (personal M365 consumer) Graph device-code token cache.
+store/.hotmail-graph-token.json
+>>>>>>> f2087e29 (feat(mail): connect personal hotmail via Microsoft Graph device-code OAuth2)
