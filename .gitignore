@@ -105,7 +105,6 @@ marveen-mail-ugyfelkod*
 # Python bytecode cache
 __pycache__/
 *.pyc
-
 # Claude Code Channels runtime config/session dir (sessions, history, tokens,
 # plugins, skills). Per-install runtime state -- never source, never commit.
 .channels-config/
@@ -156,3 +155,5 @@ transcripts/
 #   supabase/.temp/  -> ignores a real directory, MISSES the symlink (it shows in
 #                       `git status`, so the next CLI run commits it again)
 supabase/.temp
+# Hotmail (personal M365 consumer) Graph device-code token cache.
+store/.hotmail-graph-token.json
