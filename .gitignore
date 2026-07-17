@@ -104,7 +104,6 @@ marveen-mail-ugyfelkod*
 # Python bytecode cache
 __pycache__/
 *.pyc
-
 # Claude Code Channels runtime config/session dir (sessions, history, tokens,
 # plugins, skills). Per-install runtime state -- never source, never commit.
 .channels-config/
@@ -134,3 +133,6 @@ transcripts/
 # not source. (The UI language marker .lang this commit also added has since
 # landed on develop; kept there, not duplicated here.)
 .uploads/
+
+# Hotmail (personal M365 consumer) Graph device-code token cache.
+store/.hotmail-graph-token.json
