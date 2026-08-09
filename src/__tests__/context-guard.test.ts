@@ -87,9 +87,15 @@ describe('contextLimitForModel / calibrateLimit', () => {
     expect(contextLimitForModel('claude-opus-4-6')).toBe(1_000_000)
     expect(contextLimitForModel('claude-opus-5')).toBe(1_000_000)
     expect(contextLimitForModel('claude-opus-5[1m]')).toBe(1_000_000)
-    // Sonnet stays 200k: never observed above 198k on this host. Haiku 200k
-    // by spec; unknown models stay conservative (calibration steps them up).
-    expect(contextLimitForModel('claude-sonnet-5')).toBe(200_000)
+    // Sonnet-5 is 1M (2026-08-09): doksibot ran a live sonnet-5 session at
+    // 608,517 tokens, which 200k cannot hold, and Anthropic documents 1M as
+    // Sonnet 5's default and maximum. The stale 200k read that healthy
+    // session as 121.7% and queued a force-restart.
+    expect(contextLimitForModel('claude-sonnet-5')).toBe(1_000_000)
+    // Sonnet-4 and older keep 200k: 1M is beta-gated there, not the default.
+    expect(contextLimitForModel('claude-sonnet-4-5')).toBe(200_000)
+    // Haiku 200k by spec; unknown models stay conservative (calibration
+    // steps them up from live evidence).
     expect(contextLimitForModel('claude-haiku-4-5')).toBe(200_000)
     expect(contextLimitForModel('claude-opus-4-5')).toBe(200_000)
     expect(contextLimitForModel('deepseek-v4-pro')).toBe(200_000)
