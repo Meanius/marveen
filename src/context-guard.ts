@@ -161,15 +161,25 @@ export const CONTEXT_LIMIT_TIERS = [200_000, 500_000, 1_000_000] as const
  * on 2026-07-27, two of them killing samu mid-task and losing dispatched
  * instructions).
  *
- * Sonnet stays at 200k deliberately: this host has never observed a sonnet
- * session above 198k (sonnet-5 max 197,885 across 14 days), so 200k is the
- * evidenced effective window there. Haiku is 200k by spec. Unknown models
- * stay conservative at 200k -- calibrateLimit and the runner's persisted
- * high-water mark step the denominator up from live evidence, and
- * over-estimating would blind the proactive tiers (the 2026-07-26 failure
- * mode), while under-estimating is loud and self-correcting.
+ * Sonnet-5 joins them (2026-08-09). It used to sit at 200k on the "never
+ * observed above 198k on this host" argument -- an absence of evidence that
+ * expired the moment evidence appeared: doksibot ran a live sonnet-5 session
+ * at 608,517 tokens (its own pane read "608.6k", the runner's high-water file
+ * recorded the same), which a 200k window cannot hold. Anthropic's context-
+ * window documentation states 1M is Sonnet 5's default AND maximum, with no
+ * smaller variant. The stale 200k made the guard read that healthy session as
+ * 121.7% -- above hardPct -- so enabling the proactive tier on it queued an
+ * immediate force-restart; caught before the sweep fired, but that is the
+ * 2026-07-27 failure mode returning through a different model family. Sonnet-4
+ * and older stay at 200k (1M is beta-gated there, not the default).
+ *
+ * Haiku is 200k by spec. Unknown models stay conservative at 200k --
+ * calibrateLimit and the runner's persisted high-water mark step the
+ * denominator up from live evidence, and over-estimating would blind the
+ * proactive tiers (the 2026-07-26 failure mode), while under-estimating is
+ * loud and self-correcting.
  */
-const ONE_MILLION_FAMILIES = [/fable-\d/, /mythos-\d/, /opus-4-[6-9]/, /opus-[5-9]\b/]
+const ONE_MILLION_FAMILIES = [/fable-\d/, /mythos-\d/, /opus-4-[6-9]/, /opus-[5-9]\b/, /sonnet-[5-9]\b/]
 
 export function contextLimitForModel(model: string | null | undefined): number {
   if (typeof model !== 'string') return 200_000
