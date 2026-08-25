@@ -153,6 +153,7 @@ window._i18n.en = {
   'federation.modal.id_label':         'System id (e.g. teodor)',
   'federation.modal.id_hint':          'The other system\'s machine id: copy it from the "Own system id" field on the peer\'s Federation page (not the display name). Case does not matter.',
   'federation.modal.url_label':        'Base URL (https://...)',
+  'federation.modal.url_hint':         'The PEER\'s address, not your own. Any https URL works (the example is only an example); http is accepted for loopback ONLY -- 127.0.0.1, localhost or ::1 -- i.e. when both systems run on the same machine. Any other http is rejected.',
   'federation.modal.outbound_label':   'Token received from them (may stay empty until pairing completes)',
   'federation.modal.outbound_keep':    '(left unchanged)',
   'federation.modal.abandon_label':    'Patience window in minutes (empty: 60)',

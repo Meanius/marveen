@@ -153,6 +153,7 @@ window._i18n.hu = {
   'federation.modal.id_label':         'Rendszer-azonosító (pl. teodor)',
   'federation.modal.id_hint':          'A másik rendszer gépi azonosítója: a társ Föderáció-oldalán a „Saját azonosító" mezőből másold (nem a megjelenítési név). Kis-nagybetű nem számít.',
   'federation.modal.url_label':        'Alap-URL (https://...)',
+  'federation.modal.url_hint':         'A TÁRS elérhetősége, nem a sajátod. Bármilyen https cím jó (a példa csak példa); http KIZÁRÓLAG loopbackra megy, tehát 127.0.0.1, localhost vagy ::1 -- ha a két rendszer ugyanazon a gépen fut. Minden más http-t elutasít.',
   'federation.modal.outbound_label':   'Tőle kapott token (üresen hagyható a párosításig)',
   'federation.modal.outbound_keep':    '(változatlanul hagyva)',
   'federation.modal.abandon_label':    'Türelmi ablak percben (üresen: 60)',
