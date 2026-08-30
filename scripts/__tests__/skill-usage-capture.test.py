@@ -82,9 +82,74 @@ class TestClassify(unittest.TestCase):
         result = self._call("Read", {})
         self.assertIsNone(result)
 
+    # Bash (skills are read with cat/head/sed in bypass-permissions mode) --------
+    #
+    # These use a real skill directory created in setUp, because the Bash branch
+    # only records names that exist on disk.
+
+    def setUp(self):
+        self.skills_root = os.path.join(os.path.expanduser("~"), ".claude", "skills")
+        self.real_skill = "zz-test-skill-usage-fixture"
+        d = os.path.join(self.skills_root, self.real_skill)
+        os.makedirs(d, exist_ok=True)
+        self.fixture = os.path.join(d, "SKILL.md")
+        with open(self.fixture, "w", encoding="utf-8") as f:
+            f.write("---\nname: fixture\n---\n")
+        self._fixture_dir = d
+
+    def tearDown(self):
+        try:
+            os.remove(self.fixture)
+            os.rmdir(self._fixture_dir)
+        except OSError:
+            pass
+
+    def test_bash_cat_tilde_path_returns_skill_read(self):
+        result = self._call("Bash", {"command": f"cat ~/.claude/skills/{self.real_skill}/SKILL.md"})
+        self.assertEqual(result, (self.real_skill, "skill_read"))
+
+    def test_bash_cat_absolute_path_returns_skill_read(self):
+        home = os.path.expanduser("~")
+        result = self._call(
+            "Bash", {"command": f"cat {home}/.claude/skills/{self.real_skill}/SKILL.md"}
+        )
+        self.assertEqual(result, (self.real_skill, "skill_read"))
+
+    def test_bash_home_variable_path_returns_skill_read(self):
+        result = self._call(
+            "Bash", {"command": f"sed -n 1,40p $HOME/.claude/skills/{self.real_skill}/SKILL.md"}
+        )
+        self.assertEqual(result, (self.real_skill, "skill_read"))
+
+    def test_bash_path_mid_command_returns_skill_read(self):
+        result = self._call(
+            "Bash", {"command": f"wc -l ~/.claude/skills/{self.real_skill}/SKILL.md | tee /tmp/out"}
+        )
+        self.assertEqual(result, (self.real_skill, "skill_read"))
+
+    def test_bash_glob_is_not_a_skill_name(self):
+        """`wc -l ~/.claude/skills/*/SKILL.md` must not be logged as skill `*`."""
+        self.assertIsNone(self._call("Bash", {"command": "wc -l ~/.claude/skills/*/SKILL.md"}))
+
+    def test_bash_skills_dir_listing_returns_none(self):
+        self.assertIsNone(self._call("Bash", {"command": "ls ~/.claude/skills/"}))
+
+    def test_bash_nonexistent_skill_returns_none(self):
+        """A doc comment or test fixture mentioning the pattern is not a read."""
+        self.assertIsNone(
+            self._call("Bash", {"command": "grep x ~/.claude/skills/<name>/SKILL.md"})
+        )
+
+    def test_bash_skips_nonexistent_and_takes_the_real_one(self):
+        result = self._call(
+            "Bash",
+            {"command": f"cat ~/.claude/skills/<name>/SKILL.md ~/.claude/skills/{self.real_skill}/SKILL.md"},
+        )
+        self.assertEqual(result, (self.real_skill, "skill_read"))
+
     # Other tools ----------------------------------------------------------------
 
-    def test_bash_tool_returns_none(self):
+    def test_bash_without_skill_path_returns_none(self):
         self.assertIsNone(self._call("Bash", {"command": "echo hi"}))
 
     def test_write_tool_returns_none(self):
