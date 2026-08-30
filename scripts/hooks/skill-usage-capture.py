@@ -85,6 +85,22 @@ _SKILL_MD_IN_CMD_RE = re.compile(
 )
 
 
+# A heredoc body is data the command carries, not a file it touches. A commit
+# message quoting `~/.claude/skills/handoff/SKILL.md`, or a python patch script
+# whose source mentions the path, logged a read on 2026-08-30 -- twice for the
+# same commit, because the message was written twice. Only the part of the
+# command line BEFORE the first heredoc marker is treated as file access.
+_HEREDOC_RE = re.compile(r"<<-?\s*[\'\"]?\w+")
+
+# `> path` / `>> path` immediately before the match means the file is written.
+_REDIRECT_BEFORE_RE = re.compile(r">>?\s*[\'\"]?$")
+
+
+def _command_head(command: str) -> str:
+    m = _HEREDOC_RE.search(command)
+    return command[:m.start()] if m else command
+
+
 def _classify(tool_name: str, tool_input: dict) -> tuple[str, str] | None:
     """Return (skill_name, trigger_type) or None if this event is irrelevant."""
     if tool_name == "Skill":
@@ -97,7 +113,7 @@ def _classify(tool_name: str, tool_input: dict) -> tuple[str, str] | None:
         if m:
             return m.group(1), "skill_read"
     elif tool_name == "Bash":
-        command = tool_input.get("command") or ""
+        command = _command_head(tool_input.get("command") or "")
         for m in _SKILL_MD_IN_CMD_RE.finditer(command):
             name = m.group(1)
             # The path must resolve to a skill that actually exists. A command
@@ -106,6 +122,10 @@ def _classify(tool_name: str, tool_input: dict) -> tuple[str, str] | None:
             # and `agent-x` (from a test fixture), neither of which is a skill.
             # An existence check is the cheapest filter that removes both.
             if not os.path.isfile(os.path.expanduser(f"~/.claude/skills/{name}/SKILL.md")):
+                continue
+            # A redirection target is being WRITTEN, not read: `cat > .../SKILL.md`
+            # creating a new skill must not count as using it.
+            if _REDIRECT_BEFORE_RE.search(command[:m.start()]):
                 continue
             # Only the first existing skill is recorded: one hook invocation
             # posts one row, and a command touching several SKILL.md files at
