@@ -147,6 +147,41 @@ class TestClassify(unittest.TestCase):
         )
         self.assertEqual(result, (self.real_skill, "skill_read"))
 
+    def test_bash_heredoc_body_is_not_a_read(self):
+        """A commit message quoting the path is data the command carries."""
+        cmd = (
+            "git commit -F - <<'EOF'\n"
+            f"a head -3 ~/.claude/skills/{self.real_skill}/SKILL.md sort irt\n"
+            "EOF"
+        )
+        self.assertIsNone(self._call("Bash", {"command": cmd}))
+
+    def test_bash_python_heredoc_source_is_not_a_read(self):
+        cmd = (
+            "python3 - <<'PYEOF'\n"
+            f"p = '~/.claude/skills/{self.real_skill}/SKILL.md'\n"
+            "PYEOF"
+        )
+        self.assertIsNone(self._call("Bash", {"command": cmd}))
+
+    def test_bash_write_redirection_is_not_a_read(self):
+        """`cat > .../SKILL.md` creates the skill; that is not using it."""
+        cmd = f"cat > ~/.claude/skills/{self.real_skill}/SKILL.md <<'EOF'\nx\nEOF"
+        self.assertIsNone(self._call("Bash", {"command": cmd}))
+
+    def test_bash_append_redirection_is_not_a_read(self):
+        cmd = f"echo x >> ~/.claude/skills/{self.real_skill}/SKILL.md"
+        self.assertIsNone(self._call("Bash", {"command": cmd}))
+
+    def test_bash_grep_before_heredoc_still_counts(self):
+        """The head of the command line is still real file access."""
+        cmd = (
+            f"grep -n x ~/.claude/skills/{self.real_skill}/SKILL.md && python3 - <<'PYEOF'\n"
+            "print(1)\n"
+            "PYEOF"
+        )
+        self.assertEqual(self._call("Bash", {"command": cmd}), (self.real_skill, "skill_read"))
+
     # Other tools ----------------------------------------------------------------
 
     def test_bash_without_skill_path_returns_none(self):
