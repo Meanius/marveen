@@ -72,6 +72,18 @@ _SKILL_MD_RE = re.compile(
     r"^" + re.escape(os.path.expanduser("~")) + r"/\.claude/skills/([^/]+)/SKILL\.md$"
 )
 
+# The same path anywhere inside a shell command line. In bypass-permissions mode
+# skills are read with `cat`/`head`/`sed`, not with the Read tool, so without this
+# branch the counter stays silent for the reads that actually happen and the
+# dream-engine would conclude "nobody uses this skill".
+# The home prefix may be literal, `~` or `$HOME`; the name must be a concrete
+# segment, so glob characters are excluded (`wc -l ~/.claude/skills/*/SKILL.md`
+# must not be recorded as a skill called `*`).
+_SKILL_MD_IN_CMD_RE = re.compile(
+    r"(?:" + re.escape(os.path.expanduser("~")) + r"|~|\$HOME|\$\{HOME\})"
+    r"/\.claude/skills/([^/\s*?\[\]\"\'`]+)/SKILL\.md"
+)
+
 
 def _classify(tool_name: str, tool_input: dict) -> tuple[str, str] | None:
     """Return (skill_name, trigger_type) or None if this event is irrelevant."""
@@ -84,6 +96,21 @@ def _classify(tool_name: str, tool_input: dict) -> tuple[str, str] | None:
         m = _SKILL_MD_RE.match(path)
         if m:
             return m.group(1), "skill_read"
+    elif tool_name == "Bash":
+        command = tool_input.get("command") or ""
+        for m in _SKILL_MD_IN_CMD_RE.finditer(command):
+            name = m.group(1)
+            # The path must resolve to a skill that actually exists. A command
+            # can mention the pattern without reading anything real: the very
+            # first probe of this branch logged `<name>` (from a doc comment)
+            # and `agent-x` (from a test fixture), neither of which is a skill.
+            # An existence check is the cheapest filter that removes both.
+            if not os.path.isfile(os.path.expanduser(f"~/.claude/skills/{name}/SKILL.md")):
+                continue
+            # Only the first existing skill is recorded: one hook invocation
+            # posts one row, and a command touching several SKILL.md files at
+            # once is rare enough not to justify changing that contract.
+            return name, "skill_read"
     return None
 
 
