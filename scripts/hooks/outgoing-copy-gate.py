@@ -616,6 +616,14 @@ def accent_check_tokens(prose: str):
         # 403-as". GATEKOTOJEL817 covered letter-hyphen-letter forms, not this one.)
         if m.start() >= 2 and prose[m.start() - 1] == "-" and prose[m.start() - 2].isdigit():
             continue
+        # SYMBOL-HYPHEN SUFFIX (10,97%-ot, "clodex-ot", 1M-es, (x)-et). Same class
+        # as the digit case: the suffix hangs off a percent sign, a closing quote
+        # or bracket, or a letter-digit token the letter-only HYPHEN_WORD could
+        # not swallow. (2026-09-09: blocked twice in one morning, "%-ot" and
+        # '"-ot', both read as the accent-stripped "öt".) A real prose word is
+        # never glued to such a character with a hyphen, so skip it.
+        if m.start() >= 2 and prose[m.start() - 1] == "-" and prose[m.start() - 2] in "%\"'\u201d\u00bb)]}":
+            continue
         if "-" not in tok and tok[0].isupper() and not _at_sentence_start(prose, m.start()):
             continue
         out.append((tok.lower(), m.start()))
