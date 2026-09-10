@@ -29,7 +29,12 @@ export const MODEL_ALIASES: Record<string, string> = {
   'opus-5': 'claude-opus-5',
   'opus5': 'claude-opus-5',
   'haiku': 'claude-haiku-4-5-20251001',
+  // 'fable' deliberately stays on 5: re-pointing a bare alias would silently move
+  // every agent that wrote the short form. The 5.1 forms are explicit opt-ins.
   'fable': 'claude-fable-5',
+  'fable-5-1': 'claude-fable-5-1',
+  'fable51': 'claude-fable-5-1',
+  'fable5.1': 'claude-fable-5-1',
   'fable-5': 'claude-fable-5',
   'fable5': 'claude-fable-5',
   'inherit': DEFAULT_MODEL,
