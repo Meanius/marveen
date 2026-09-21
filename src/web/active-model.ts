@@ -181,3 +181,124 @@ export function readTranscriptMtimeAcrossConfigDirs(
   }
   return newest
 }
+
+/**
+ * Breakdown of the user-initiated turns a session ran AFTER a given instant,
+ * or null when there is no readable transcript.
+ *
+ * Why this exists: handoff staleness is measured from the transcript's mtime
+ * (see handoffStaleMinutes), and a scheduled-task heartbeat touches the
+ * transcript exactly like real work does. Measured on 2026-09-18,
+ * twice on 2026-09-20 and again on 2026-09-21: the guard restarted with
+ * "handoff written but STALE (~Nm of work after it)" when the whole uncovered
+ * window was empty `ledger-live-drain` heartbeats answering "Üres." The fresh
+ * session then spent a full round hunting for work that never happened. The
+ * calibrated example is 2026-09-21: handoff at 12:06:35, restart at 12:10
+ * claiming ~4m of work, window measured here = 2 turns, both heartbeats.
+ * (The same guard also calls it RIGHT -- msg 1276 the same morning flagged a
+ * weekly summary that really was missing -- so the verdict stays; only the
+ * evidence is new.)
+ *
+ * This does NOT re-decide the staleness verdict -- it ships the EVIDENCE next
+ * to it, so the reader (the fresh session, or the supervisor) can tell an
+ * uncovered window of real work from a window of heartbeats without measuring
+ * it again. A verdict computed from turn labels would be a guess; a count of
+ * what ran is a measurement.
+ *
+ * Counted: user-initiated turns only. Tool results are `type: 'user'` entries
+ * too, so an entry whose content carries a tool_result is a continuation of a
+ * turn already counted, not a new one.
+ */
+export interface TranscriptTurnBreakdown {
+  /** User-initiated turns strictly after sinceMs. */
+  total: number
+  /** Of those, prompts injected by the scheduler (heartbeats). */
+  heartbeat: number
+  /** Distinct scheduled-task sources seen, at most 4, in first-seen order. */
+  sources: string[]
+}
+
+// Global: the scheduler's preamble names the tag with a LITERAL placeholder
+// (`the next <scheduled-task source="..."> block`) before the real block
+// arrives in the same message, so the FIRST match is always "..." -- measured
+// on the 2026-09-21 12:08 and 12:10 turns. Take the first concrete one.
+const HEARTBEAT_SOURCE_RE = /<scheduled-task\s+source="([^"]*)"/g
+const HEARTBEAT_MARKER_RE = /SCHEDULED TASK NOTICE|<scheduled-task\s|^\s*\[Heartbeat:/
+
+/** First named scheduled-task source in the text, skipping the preamble's
+ *  `...` placeholder; null when the turn names none. */
+function concreteHeartbeatSource(text: string): string | null {
+  HEARTBEAT_SOURCE_RE.lastIndex = 0
+  for (let m = HEARTBEAT_SOURCE_RE.exec(text); m !== null; m = HEARTBEAT_SOURCE_RE.exec(text)) {
+    const src = m[1].trim()
+    if (src && src !== '...') return src
+  }
+  return null
+}
+
+/** Flatten a transcript entry's message content to plain text for matching. */
+function entryText(entry: unknown): string {
+  const content = (entry as { message?: { content?: unknown } })?.message?.content
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  const parts: string[] = []
+  for (const block of content) {
+    if (block && typeof block === 'object' && typeof (block as { text?: unknown }).text === 'string') {
+      parts.push((block as { text: string }).text)
+    }
+  }
+  return parts.join('\n')
+}
+
+/** True when the entry is a tool_result continuation rather than a new turn. */
+function isToolResultEntry(entry: unknown): boolean {
+  const content = (entry as { message?: { content?: unknown } })?.message?.content
+  if (!Array.isArray(content)) return false
+  return content.some(b => b && typeof b === 'object' && (b as { type?: unknown }).type === 'tool_result')
+}
+
+export function readTurnBreakdownSince(
+  workingDir: string,
+  sinceMs: number,
+  configDir?: string,
+): TranscriptTurnBreakdown | null {
+  try {
+    const dir = projectsDirFor(workingDir, configDir)
+    if (!existsSync(dir)) return null
+    // Same selection as readTranscriptMtimeFromProjectDir: newest jsonl wins,
+    // so the breakdown always describes the transcript the staleness gap was
+    // measured against. Two different selections would describe two sessions.
+    const jsonls = readdirSync(dir)
+      .filter(f => f.endsWith('.jsonl'))
+      .map(f => ({ f, mtime: statSync(join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime)
+    if (jsonls.length === 0) return null
+    const lines = readFileSync(join(dir, jsonls[0].f), 'utf-8').split('\n')
+    let total = 0
+    let heartbeat = 0
+    const sources: string[] = []
+    // Backwards with an early stop: the window of interest is the tail, and a
+    // day-long transcript is megabytes. Stopping at the first entry that
+    // predates sinceMs is safe -- Claude Code appends in time order.
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim()
+      if (!line) continue
+      let entry: { type?: unknown; timestamp?: unknown }
+      try { entry = JSON.parse(line) } catch { continue }
+      const ts = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN
+      if (!Number.isFinite(ts)) continue
+      if (ts <= sinceMs) break
+      if (entry.type !== 'user') continue
+      if (isToolResultEntry(entry)) continue
+      const text = entryText(entry)
+      if (!text.trim()) continue
+      total++
+      if (HEARTBEAT_MARKER_RE.test(text)) {
+        heartbeat++
+        const src = concreteHeartbeatSource(text)
+        if (src && sources.length < 4 && !sources.includes(src)) sources.unshift(src)
+      }
+    }
+    return { total, heartbeat, sources }
+  } catch { return null }
+}

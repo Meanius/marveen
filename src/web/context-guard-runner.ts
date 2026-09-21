@@ -19,7 +19,13 @@ import { sendSystemDirective } from './system-directive.js'
 import { notifyChannel } from '../notify.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { detectPaneState, paneShowsContextSaturation, paneShowsContextSaturationHardError } from '../pane-state.js'
-import { readContextTokensFromProjectDir, readActiveModelFromProjectDir, readTranscriptMtimeFromProjectDir } from './active-model.js'
+import {
+  readContextTokensFromProjectDir,
+  readActiveModelFromProjectDir,
+  readTranscriptMtimeFromProjectDir,
+  readTurnBreakdownSince,
+  type TranscriptTurnBreakdown,
+} from './active-model.js'
 import { readContextGuardConfig } from './context-guard-store.js'
 import { localMidnightMs } from '../auto-restart.js'
 import { recordRescueFailure, clearRescueFailures } from './rescue-failure-tracker.js'
@@ -193,13 +199,56 @@ export function dailyHandoffPrompt(atTime: string, handoffPath: string): string 
  * other requests -- "write a handoff" would read as a bug ("I already did"),
  * and the critical-context alarm may be false here.
  */
-export function staleRefreshHandoffPrompt(staleMinutes: number, handoffPath: string): string {
+export function staleRefreshHandoffPrompt(
+  staleMinutes: number,
+  handoffPath: string,
+  turns: TranscriptTurnBreakdown | null | undefined = null,
+): string {
+  const evidence = describeTurnsSinceHandoff(turns)
   return (
-    `[CONTEXT-GUARD] A HANDOFF.md-d megvan, de az írása óta ~${staleMinutes} perc érdemi munka történt, ` +
-    `tehát a mostani állapotot MÁR NEM fedi (döntések, verdiktek, üzenetváltások hiányoznak belőle). ` +
-    `EGYETLEN dolgod ebben a körben: frissítsd a HANDOFF.md-t itt: ${handoffPath} úgy, hogy a legutóbbi munkát is tartalmazza ` +
+    `[CONTEXT-GUARD] A HANDOFF.md-d megvan, de az írása óta ~${staleMinutes} perc telt el újabb aktivitással, ` +
+    `tehát lehet, hogy a mostani állapotot MÁR NEM fedi (döntés, verdikt, üzenetváltás hiányozhat belőle). ` +
+    (evidence
+      // The agent is the one reader who can settle it in one look, and it is
+      // about to spend its last turns: hand it the measurement, not just the
+      // alarm. "All heartbeats" turns a rewrite into a one-line confirmation.
+      ? `Amit mértem: ${evidence}. Ha ellenőrzöd és tényleg nem történt semmi, EGY hozzáfűzött sor elég, hogy a fájl változatlanul érvényes. ` +
+        `Ha történt: `
+      : 'EGYETLEN dolgod ebben a körben: ') +
+    `frissítsd a HANDOFF.md-t itt: ${handoffPath} úgy, hogy a legutóbbi munkát is tartalmazza ` +
     `(mi dőlt el, mi került leadásra, mi a következő lépés). Utána ÁLLJ MEG -- a rendszer friss kontextussal újraindít és ebből folytatod.`
   )
+}
+
+/**
+ * One clause naming WHAT ran in the window the handoff does not cover, or null
+ * when nothing was measured.
+ *
+ * The staleness number is a clock reading: it says how long the window was, and
+ * cannot say whether anything happened in it. A scheduled-task heartbeat
+ * appends to the transcript exactly like a merge does, so an agent that sat
+ * idle through two empty `ledger-live-drain` turns measures as "~4m of work
+ * after it" (measured 2026-09-18, twice on 2026-09-20, and 2026-09-21; each
+ * cost the fresh session a round of hunting for work that never happened).
+ *
+ * This states the evidence, never a verdict: "N turns ran, all of them
+ * heartbeats" is a measurement the reader can act on, while "the handoff is
+ * probably fine" would be a guess made from turn labels -- and a heartbeat CAN
+ * do real work (the drain answers a lost channel message when it finds one).
+ * The restart itself is unaffected; only what we tell the reader changes.
+ */
+export function describeTurnsSinceHandoff(turns: TranscriptTurnBreakdown | null | undefined): string | null {
+  if (!turns) return null
+  if (turns.total === 0) return 'a handoff írása óta egyetlen forduló sem indult'
+  const src = turns.sources.length > 0 ? ` (${turns.sources.join(', ')})` : ''
+  if (turns.heartbeat === turns.total) {
+    return `a handoff írása óta ${turns.total} forduló indult, MIND ütemezett heartbeat${src} -- ` +
+      'ezek üresen is írnak a transzkriptbe, tehát a fenti perc-szám nem bizonyítja, hogy történt valami'
+  }
+  if (turns.heartbeat > 0) {
+    return `a handoff írása óta ${turns.total} forduló indult, ebből ${turns.heartbeat} ütemezett heartbeat${src}`
+  }
+  return `a handoff írása óta ${turns.total} forduló indult, egyik sem ütemezett heartbeat`
 }
 
 export function resumePrompt(
@@ -207,6 +256,7 @@ export function resumePrompt(
   handoffPath: string,
   hadHandoff: boolean,
   staleMinutes: HandoffStaleness = null,
+  turns: TranscriptTurnBreakdown | null | undefined = null,
 ): string {
   const base =
     // Wording covers both tiers that lead here: "grew too large" is true at the
@@ -225,7 +275,13 @@ export function resumePrompt(
       // A stale handoff presented as current re-opens already-decided
       // questions; say the gap out loud and route the agent to the live
       // sources FIRST for the uncovered window.
-      ? `Első lépés: olvasd be ${handoffPath} -- ez az előző session átadója, DE ELAVULT: az utolsó ~${staleMinutes} perc munkája NINCS benne. ` +
+      ? `Első lépés: olvasd be ${handoffPath} -- ez az előző session átadója, DE lehet, hogy az utolsó ~${staleMinutes} perc NINCS benne. ` +
+        (describeTurnsSinceHandoff(turns)
+          // The gap is a clock reading; this is what actually ran in it. Without
+          // it a fresh session starts a full reconstruction for a window that
+          // held two empty heartbeats (2026-09-21 12:06 -> 12:10).
+          ? `Amit a régi session transzkriptjén mértem: ${describeTurnsSinceHandoff(turns)}. `
+          : '') +
         `A hiányzó szakaszt az élő forrásokból pótold (kanban-kommentek, inter-agent üzenetek, hot memóriák), MIELŐTT a handoff Next Steps-e szerint cselekednél. `
       : `Első lépés: olvasd be ${handoffPath} -- ez az előző session átadója. `
   return (
@@ -437,6 +493,10 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     }
   }
 
+  // Read once: the staleness gap and the turn breakdown must describe the
+  // SAME artifact, and handoffMtime() stats the file.
+  const handoffMtimeValue = needPct ? handoffMtime(name) : null
+
   const inputs: GuardInputs = {
     nowMs,
     running,
@@ -449,7 +509,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     paneIdle: paneState === 'idle',
     paneBusy: paneState === 'busy',
     sessionReady,
-    handoffMtime: needPct ? handoffMtime(name) : null,
+    handoffMtime: handoffMtimeValue,
     // Already reconciled with the measurement above, so decideGuard itself
     // needs no change and every existing net regression test still applies.
     paneSaturated: paneSaturatedTrusted,
@@ -462,6 +522,14 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     // (handoffStaleMinutes) needs the transcript mtime on every decision path
     // that can restart, and the probe is a single stat().
     idleMs: running && needPct ? measureIdleMs(name, nowMs) : null,
+    // Only measured where it is read: the staleness window exists in
+    // await-handoff, and a transcript can be megabytes -- the idle sweep must
+    // not pay for parsing one on every tick for every agent.
+    turnsSinceHandoff:
+      running && needPct && handoffMtimeValue !== null &&
+      (state.phase === 'await-handoff' || paneSaturatedTrusted)
+        ? readTurnBreakdownSince(workingDirFor(name), handoffMtimeValue, configDirFor(name))
+        : null,
     // Seed-on-first-sight: an agent we have not seen this process is recorded
     // as served NOW and is never due on the same sweep. dailyHandoffDue is
     // therefore false on the first tick by construction, not by luck.
@@ -554,7 +622,11 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
           decision.reason.startsWith(STALE_REFRESH_REASON_PREFIX)
             // The handoff exists but went stale while we waited for an idle
             // pane; ask for a refresh, not a first write.
-            ? staleRefreshHandoffPrompt(((sm) => typeof sm === 'number' ? sm : 0)(handoffStaleMinutes(inputs)), handoffPathFor(name))
+            ? staleRefreshHandoffPrompt(
+                ((sm) => typeof sm === 'number' ? sm : 0)(handoffStaleMinutes(inputs)),
+                handoffPathFor(name),
+                inputs.turnsSinceHandoff ?? null,
+              )
             : decision.reason.startsWith(IDLE_FLUSH_REASON_PREFIX)
               // pct is null whenever the idle tier runs without the proactive
               // tiers, so the alarming percentage-based prompt would read "~0%
@@ -654,7 +726,15 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
               // The generic "messages may be lost" line invites the wrong
               // conclusion when the real gap is the ARTIFACT: say explicitly
               // that the handoff does not cover the tail of the session.
-              ? ` FIGYELEM: a HANDOFF.md ELAVULT -- az utolso ~${decision.nextState.handoffStaleMinutes} perc munkaja nincs benne, a friss session ezt a szakaszt az elo forrasokbol kapja meg.`
+              ? ` FIGYELEM: a HANDOFF.md lehet, hogy nem fedi az utolso ~${decision.nextState.handoffStaleMinutes} percet.` +
+                (describeTurnsSinceHandoff(decision.nextState.handoffTurnBreakdown)
+                  // The supervisor reads this line to decide whether to step in.
+                  // The minute count alone reads as lost work even when the
+                  // window held nothing but heartbeats, so the measurement of
+                  // WHAT ran travels with it.
+                  ? ` Amit mertem: ${describeTurnsSinceHandoff(decision.nextState.handoffTurnBreakdown)}.`
+                  : '') +
+                ' A friss session ezt a szakaszt az elo forrasokbol kapja meg.'
               : decision.nextState.handoffStaleMinutes === 'unknown'
                 // The supervisor's manual state-handoff decision runs on this
                 // line (2026-08-17: a hand-measured mtime saved a payment-PR
@@ -679,7 +759,13 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
         await sendSystemDirective(
           name,
           session,
-          resumePrompt(name, handoffPathFor(name), hadHandoff, state.handoffStaleMinutes),
+          resumePrompt(
+            name,
+            handoffPathFor(name),
+            hadHandoff,
+            state.handoffStaleMinutes,
+            state.handoffTurnBreakdown,
+          ),
         )
         break
       }
