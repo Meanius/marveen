@@ -26,6 +26,10 @@
 // get a midnight boundary wrong. Those helpers touch no clock or fs, so the
 // dependency-free property above still holds.
 import { parseHHMM, dailyDueAtMs, restartDue } from './auto-restart.js'
+// Type only (erased at compile time): the breakdown is MEASURED by the
+// runner, which owns the filesystem; this module only carries it through the
+// decision so the resume prompt can quote it. No runtime dependency is added.
+import type { TranscriptTurnBreakdown } from './web/active-model.js'
 
 export interface ContextGuardConfig {
   /** Master toggle for the PROACTIVE tiers (actPct handoff / hardPct restart).
@@ -339,6 +343,14 @@ export interface GuardState {
    *  Optional, and absent from every state literal that starts a sequence, so
    *  each new handoff sequence may report once again. */
   busyOverdueWarned?: boolean
+
+  /** The turns measured in that same uncovered window, carried alongside the
+   *  gap so the restart notice and the resume prompt can say WHAT ran, not
+   *  just how long it took. Optional, and absent means UNMEASURED rather than
+   *  "nothing ran" -- a state persisted before this field existed, or a sweep
+   *  that never paid for the transcript parse, must not read as evidence of an
+   *  empty window. */
+  handoffTurnBreakdown?: TranscriptTurnBreakdown | null
 }
 
 export const INITIAL_GUARD_STATE: GuardState = {
@@ -349,6 +361,7 @@ export const INITIAL_GUARD_STATE: GuardState = {
   saturatedStreak: 0,
   staleRefreshCount: 0,
   handoffStaleMinutes: null,
+  handoffTurnBreakdown: null,
 }
 
 /** Idle-phase sweeps that must agree the pane is saturated before the net
@@ -453,6 +466,17 @@ export interface GuardInputs {
    *  writes nothing while it runs -- so it is only ever read together with
    *  paneIdle. See readTranscriptMtimeFromProjectDir. */
   idleMs: number | null
+  /** What the session actually RAN after HANDOFF.md was written, or null when
+   *  unmeasured (no handoff, or an unreadable transcript). The staleness gap
+   *  above is a clock reading and cannot tell a window of real work from a
+   *  window of scheduled-task heartbeats -- an empty heartbeat touches the
+   *  transcript exactly like a merge does. Measured on 2026-09-18, twice on
+   *  2026-09-20 and again on 2026-09-21, where the "~4m of work after it"
+   *  window held exactly two empty `ledger-live-drain` turns and the fresh
+   *  session spent a round looking for work that never happened. Carried,
+   *  not re-decided:
+   *  the verdict stays with the clock, the evidence rides next to it. */
+  turnsSinceHandoff?: TranscriptTurnBreakdown | null
   /** The configured daily slot has come round and has not been served yet.
    *  Computed by the runner with dailyHandoffDue(), which needs a local
    *  midnight and the last-served stamp -- neither of which belongs in this
@@ -999,13 +1023,19 @@ function cooldown(nowMs: number, cfg: ContextGuardConfig, reason: string): Guard
       saturatedStreak: 0,
       staleRefreshCount: 0,
       handoffStaleMinutes: null,
+      handoffTurnBreakdown: null,
     },
   }
 }
 
 /** staleMinutes rides into await-ready so inject-resume can tell the fresh
  *  session its handoff does not cover the last N minutes. */
-function restartDecision(nowMs: number, reason: string, staleMinutes: HandoffStaleness = null): GuardDecision {
+function restartDecision(
+  nowMs: number,
+  reason: string,
+  staleMinutes: HandoffStaleness = null,
+  turns: TranscriptTurnBreakdown | null = null,
+): GuardDecision {
   return {
     action: 'restart',
     reason,
@@ -1017,6 +1047,7 @@ function restartDecision(nowMs: number, reason: string, staleMinutes: HandoffSta
       saturatedStreak: 0,
       staleRefreshCount: 0,
       handoffStaleMinutes: staleMinutes,
+      handoffTurnBreakdown: turns,
     },
   }
 }
@@ -1067,6 +1098,7 @@ export function decideGuard(
             nowMs,
             `pane saturated (100% context) for ${streak} sweeps -- unrecoverable without restart`,
             handoffStaleMinutes(inputs),
+            inputs.turnsSinceHandoff,
           )
         }
         return none('pane saturated, awaiting confirmation sweep', { ...state, saturatedStreak: streak })
@@ -1131,7 +1163,7 @@ export function decideGuard(
         // The pane tipped over while we waited for the handoff: the agent can
         // no longer act on the request, so restart now (no debounce -- the
         // act-threshold pct already corroborates a near-full context).
-        return restartDecision(nowMs, 'pane saturated during await-handoff', handoffStaleMinutes(inputs))
+        return restartDecision(nowMs, 'pane saturated during await-handoff', handoffStaleMinutes(inputs), inputs.turnsSinceHandoff)
       }
       if (inputs.usageLimited) {
         // The agent cannot write (or finish writing) the handoff without
@@ -1213,6 +1245,7 @@ export function decideGuard(
               (refreshBudgetLeft ? '' : ` -- ${state.staleRefreshCount} refresh(es) already requested, accepting as-is`)
             : 'handoff written',
           staleMin,
+          inputs.turnsSinceHandoff,
         )
       }
       // Same mid-turn deferral as the idle-phase hard tier: neither the hard
@@ -1222,7 +1255,7 @@ export function decideGuard(
       // mid-flight is caught by the paneSaturated branch above.
       if (inputs.pct !== null && inputs.pct >= cfg.hardPct) {
         if (inputs.paneBusy) return deferBusy('hard threshold during await-handoff but agent mid-turn -- deferring restart')
-        return restartDecision(nowMs, 'hard threshold during await-handoff', handoffStaleMinutes(inputs))
+        return restartDecision(nowMs, 'hard threshold during await-handoff', handoffStaleMinutes(inputs), inputs.turnsSinceHandoff)
       }
       if (nowMs >= state.deadlineMs) {
         if (inputs.paneBusy) return deferBusy('handoff timeout but agent mid-turn -- deferring restart')
@@ -1230,7 +1263,7 @@ export function decideGuard(
         // anyway: taskstate + kanban + hot memories are the fallback context.
         // An OLD HANDOFF.md may still exist; measure how far behind it is so
         // the resume prompt does not present it as current.
-        return restartDecision(nowMs, 'handoff timeout -- force restart', handoffStaleMinutes(inputs))
+        return restartDecision(nowMs, 'handoff timeout -- force restart', handoffStaleMinutes(inputs), inputs.turnsSinceHandoff)
       }
       return none(handoffWritten ? 'handoff written, waiting for idle pane' : 'waiting for handoff')
     }
@@ -1268,6 +1301,7 @@ export function decideGuard(
             saturatedStreak: 0,
             staleRefreshCount: 0,
             handoffStaleMinutes: null,
+            handoffTurnBreakdown: null,
           },
         }
       }
@@ -1306,6 +1340,7 @@ function decideWedgeTiers(
       nowMs,
       `hard threshold (${Math.round(pct * 100)}% >= ${Math.round(cfg.hardPct * 100)}%)`,
       handoffStaleMinutes(inputs),
+      inputs.turnsSinceHandoff,
     )
   }
   if (pct >= cfg.actPct) {
@@ -1396,6 +1431,7 @@ function handoffRequest(
       handoffStaleMinutes: null,
       handoffRequestReason: reason,
       idleFlushSequence: reason.startsWith(IDLE_FLUSH_REASON_PREFIX),
+      handoffTurnBreakdown: null,
     },
   }
 }
