@@ -65,7 +65,11 @@ index_skills_dir() {
     fi
 
     local desc
-    desc=$(grep -m1 "^description:" "$skill_md" 2>/dev/null | sed 's/^description: *//' | tr -d '"' | tr -d "'" | cut -c1-120)
+    desc=$(grep -m1 "^description:" "$skill_md" 2>/dev/null | sed 's/^description: *//' | tr -d '"' | tr -d "'" | python3 -c "import sys; print(sys.stdin.read().rstrip()[:120])")
+    # 2026-09-15: a `cut -c` BAJTRA vag (LANG=C.UTF-8 mellett is), es harom leirasnal
+    # kettevagta a zaro ekezetes karaktert. Az ervenytelen bajttol a grep BINARISNAK veszi
+    # ezt a fajlt, es NEMAN nulla talalatot ad -- azaz eltori a Level 0 kereseset, amire a
+    # memoria-heartbeat epul. A python3 karakterre vag, ezert az ekezet nem torik ketté.
     if [ -z "$desc" ]; then
       desc="(nincs leírás)"
     fi
