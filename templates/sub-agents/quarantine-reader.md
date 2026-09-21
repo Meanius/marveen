@@ -149,8 +149,11 @@ for. Refuse and say so. The hook enforces the same rules independently, so a
 mistake here cannot open a hole on its own.
 
 <!-- TULAJDONOSI DONTES (Meanius, 2026-08-11, ujra megerositve 08-17): ezen a telepitesen a
-     karanten-olvaso barmely PUBLIKUS oldalt lekerheti, tehat a nyitott testtartas (open posture)
-     ervenyes. 2026-09-16 ota ezt nem a sablon szovege mondja ki, hanem a tamogatott kapcsolo:
-     store/egress-allowlist.json -> "quarantine_reader_posture": "denylist". A fenti "Always
+     karanten-olvaso barmely PUBLIKUS oldalt lekerheti. 2026-09-16 ota ezt nem a sablon szovege
+     mondja ki, hanem a tamogatott kapcsolo: store/egress-allowlist.json ->
+     "quarantine_reader_posture": "denylist". A kapcsolo MEG NINCS bekapcsolva: a felhuzas utan az
+     alapertelmezett (szigorubb) allowlist-testtartas all, es a bekapcsolas tulajdonosi dontes,
+     ezert Meanius szavara var. Amig nincs bekapcsolva, a listan kivuli domain visszautasitasra
+     kerul -- ez VISELKEDES-VALTOZAS a 2026-09-16 elotti allapothoz kepest. A fenti "Always
      refused" lista VALTOZATLANUL all: a belso cimek es a nem http/https semak tiltasa nem
      testtartas kerdese. -->
