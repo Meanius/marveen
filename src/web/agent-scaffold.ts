@@ -1286,6 +1286,51 @@ export const LEGACY_BASH_EGRESS_DENY = [
   'Bash(*/wget *)',
 ]
 
+// THE OWNER'S OPT-OUT FOR THE MAIN AGENT (BokiBot fleet, 2026-10-04). The
+// owner decided (2026-08-11, reaffirmed 2026-08-17 and 2026-10-04, TG 5801)
+// that the main agent's network access is NOT restricted; the boot-time
+// backfill below kept writing the shell-fetch deny back into the main agent's
+// own config dir regardless, so a curl to a public legal source was refused
+// against that decision. `"main_agent_shell_egress": "open"` in
+// store/egress-allowlist.json (the operator file the scaffolder never
+// overwrites) is the switch: when set, the boot path LIFTS the rules from the
+// main agent's config instead of adding them. Sub-agents are untouched.
+// Revert: delete the key; the next boot writes the rules back.
+export function mainAgentShellEgressOpen(storeDir = STORE_DIR): boolean {
+  try {
+    const raw = JSON.parse(readFileSync(join(storeDir, 'egress-allowlist.json'), 'utf-8'))
+    return raw?.main_agent_shell_egress === 'open'
+  } catch {
+    return false
+  }
+}
+
+// Pure inverse of mergeBashEgressDeny: drops exactly the rules this module
+// owns and keeps every other deny entry (an operator's own rule must survive).
+export function removeBashEgressDeny(settings: Record<string, unknown>): boolean {
+  const perms = settings.permissions
+  if (!perms || typeof perms !== 'object' || Array.isArray(perms)) return false
+  const deny = (perms as Record<string, unknown>).deny
+  if (!Array.isArray(deny)) return false
+  // Both lists: a config written before 2026-10-13 still carries the legacy curl/wget rules.
+  const owned = [...BASH_EGRESS_DENY, ...LEGACY_BASH_EGRESS_DENY]
+  const kept = deny.filter((rule) => !owned.includes(rule as string))
+  if (kept.length === deny.length) return false
+  ;(perms as Record<string, unknown>).deny = kept
+  return true
+}
+
+// Filesystem wrapper for the main agent's own config dir. Returns true if a file was written.
+export function liftBashEgressDeny(mainAgentConfigDir: string): boolean {
+  const settingsPath = join(mainAgentConfigDir, 'settings.json')
+  if (!existsSync(settingsPath)) return false
+  let settings: Record<string, unknown>
+  try { settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) } catch { return false }
+  if (!removeBashEgressDeny(settings)) return false
+  atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2))
+  return true
+}
+
 // WHICH FILE the egress deny is written to -- the part that is not obvious, so
 // it is a pure function with its own tests.
 //
