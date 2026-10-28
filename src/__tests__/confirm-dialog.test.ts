@@ -1,7 +1,8 @@
 /**
  * The app's own confirmation dialog (web/app.js confirmDialog), in place of the native confirm(), and the
- * first actions moved onto it: the agent's stop and delete buttons (the main-agent restart button has its
- * own handler test, marveen-restart-button-force.test.ts).
+ * actions moved onto it, block by block: the agent's stop and delete buttons (the main-agent restart button
+ * has its own handler test, marveen-restart-button-force.test.ts), then the channel page's remove, revoke
+ * and disconnect.
  *
  * The SHIPPED function runs against a small fake DOM: only the explicit confirm button resolves true;
  * Cancel, the close button, Escape and the backdrop resolve false; Cancel holds the focus, so Enter on a
@@ -134,6 +135,35 @@ describe('confirmDialog', () => {
   })
 })
 
+// Review of #2246: the pins below prove that each button asks, not that the answer counts. With the
+// `if (!confirmed) return` removed, "Mégse" would still send the request and every test stayed green.
+// So for each call site: the answer of THIS confirmDialog is checked, and returns, before the first
+// request the handler sends. (The main-agent restart button proves the same by running its handler:
+// marveen-restart-button-force.test.ts, "the first confirm declined: no request at all".)
+describe('a "no" stops the action: the answer is checked before the request', () => {
+  const site = (anchor: string, request: string) => {
+    const i = APP.indexOf(anchor)
+    const j = i < 0 ? -1 : APP.indexOf(request, i)
+    return i < 0 || j < 0 ? '' : APP.slice(i, j + request.length)
+  }
+
+  it.each([
+    ['agent stop', "document.getElementById('agentStopBtn').addEventListener('click'", "/stop`, { method: 'POST' })"],
+    ['agent delete', "document.getElementById('deleteAgentBtn').onclick = async () => {", "{ method: 'DELETE' })"],
+    ['channel: remove a connected chat', 'async function removeAllowed(kind, id) {', "{ method: 'DELETE' })"],
+    ['channel: revoke an invite link', 'async function revokeInviteToken(token) {', "{ method: 'DELETE' })"],
+    ['channel: disconnect', "document.getElementById('chDisconnectBtn').addEventListener('click'", "{ method: 'DELETE' })"],
+  ])('%s', (_name, anchor, request) => {
+    const body = site(anchor, request)
+    expect(body, 'handler or its request not found').not.toBe('')
+    const ask = body.indexOf('const confirmed = await confirmDialog({')
+    const guard = body.indexOf('if (!confirmed) return')
+    expect(ask).toBeGreaterThan(-1)
+    expect(guard).toBeGreaterThan(ask)
+    expect(body.slice(0, guard)).not.toMatch(/\bfetch\(/)
+  })
+})
+
 describe('the agent actions use it', () => {
   const handler = (anchor: string, endMarker: string) => {
     const i = APP.indexOf(anchor)
@@ -156,7 +186,32 @@ describe('the agent actions use it', () => {
     expect(src).not.toMatch(/(^|[^.\w])confirm\(/)
   })
 
+  const REMOVE = handler('async function removeAllowed(kind, id) {', 'try {')
+  const REVOKE = handler('async function revokeInviteToken(token) {', 'try {')
+  const DISCONNECT = handler("document.getElementById('chDisconnectBtn').addEventListener('click'", 'catch {')
+
   it.each([
+    ['channel: remove an allowed user or group', REMOVE, 'channel.confirm.remove'],
+    ['channel: revoke an invite link', REVOKE, 'channel.confirm.revoke'],
+    ['channel: disconnect the provider', DISCONNECT, 'channel.confirm.disconnect'],
+  ])('%s: a danger confirmDialog with its own title and button, no native confirm()', (_name, src, key) => {
+    expect(src.length).toBeGreaterThan(50)
+    expect(src).toContain('await confirmDialog({')
+    expect(src).toContain(`title: t('${key}_title')`)
+    expect(src).toContain(`okLabel: t('${key}_ok')`)
+    expect(src).toContain('danger: true')
+    expect(src).not.toMatch(/(^|[^.\w])confirm\(/)
+  })
+
+  it('disconnect: the question and the toast are translated, not a hard-coded unaccented string', () => {
+    expect(DISCONNECT).toContain("message: t('channel.confirm.disconnect', { provider: provLabel })")
+    expect(DISCONNECT).toContain("showToast(t('channel.toast.disconnected', { provider: provLabel }))")
+    expect(DISCONNECT).not.toMatch(/levalaszt/i)
+  })
+
+  it.each([
+    'channel.confirm.remove_title', 'channel.confirm.remove_ok', 'channel.confirm.revoke_title', 'channel.confirm.revoke_ok',
+    'channel.confirm.disconnect_title', 'channel.confirm.disconnect', 'channel.confirm.disconnect_ok', 'channel.toast.disconnected',
     'agents.confirm.hard_restart_title', 'agents.confirm.hard_restart_ok', 'agents.confirm.force_restart_ok',
     'agents.confirm.stop_title', 'agents.confirm.stop_ok', 'agents.confirm.delete_title', 'agents.confirm.delete_ok',
   ])('%s is in both languages', (key) => {

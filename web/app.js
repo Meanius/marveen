@@ -6455,7 +6455,13 @@ async function refreshAllowedList() {
 async function removeAllowed(kind, id) {
   if (!currentAgent) return
   const label = kind === 'user' ? t('channel.kind.user') : t('channel.kind.group')
-  if (!confirm(t('channel.confirm.remove', { label, id }))) return
+  const confirmed = await confirmDialog({
+    title: t('channel.confirm.remove_title'),
+    message: t('channel.confirm.remove', { label, id }),
+    okLabel: t('channel.confirm.remove_ok'),
+    danger: true,
+  })
+  if (!confirmed) return
   try {
     const res = await fetch(`${channelApiBase()}/allowed/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' })
     if (!res.ok) {
@@ -6549,7 +6555,13 @@ async function generateInvite() {
 
 async function revokeInviteToken(token) {
   if (!currentAgent) return
-  if (!confirm(t('channel.confirm.revoke'))) return
+  const confirmed = await confirmDialog({
+    title: t('channel.confirm.revoke_title'),
+    message: t('channel.confirm.revoke'),
+    okLabel: t('channel.confirm.revoke_ok'),
+    danger: true,
+  })
+  if (!confirmed) return
   try {
     const res = await fetch(`${channelApiBase()}/invites/${encodeURIComponent(token)}`, { method: 'DELETE' })
     if (!res.ok) {
@@ -6695,10 +6707,16 @@ document.getElementById('chApproveBtn').addEventListener('click', async () => {
 document.getElementById('chDisconnectBtn').addEventListener('click', async () => {
   if (!currentAgent) return
   const provLabel = getProviderLabel()
-  if (!confirm(`Biztosan levalasztod a ${provLabel} csatornat?`)) return
+  const confirmed = await confirmDialog({
+    title: t('channel.confirm.disconnect_title'),
+    message: t('channel.confirm.disconnect', { provider: provLabel }),
+    okLabel: t('channel.confirm.disconnect_ok'),
+    danger: true,
+  })
+  if (!confirmed) return
   try {
     await fetch(`${channelApiBase()}`, { method: 'DELETE' })
-    showToast(`${provLabel} levalasztva`)
+    showToast(t('channel.toast.disconnected', { provider: provLabel }))
     await openAgentDetail(currentAgent.name)
     loadAgents()
   } catch {
