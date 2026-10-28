@@ -3343,10 +3343,15 @@ attachOverlayCloseGuard(agentWizardOverlay)
 attachOverlayCloseGuard(agentDetailOverlay)
 attachOverlayCloseGuard(skillModalOverlay)
 
-// Close all modals on Escape
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    document.querySelectorAll('.modal-overlay.active').forEach((o) => closeModal(o))
+// Close all modals on Escape. A confirmDialog on top answers its own Escape as a "no", so the modal
+// under it stays open (closing it too would drop the input the dialog was protecting). The skill
+// editor asks before an unsaved edit is dropped, as its Cancel and close button do.
+document.addEventListener('keydown', async (e) => {
+  if (e.key !== 'Escape') return
+  if (document.querySelector('.confirm-dialog')) return
+  for (const o of document.querySelectorAll('.modal-overlay.active')) {
+    if (o === skillDetailOverlay && !(await _skillDetailConfirmDiscard())) continue
+    closeModal(o)
   }
 })
 
@@ -6854,7 +6859,17 @@ document.getElementById('saveSkillBtn').addEventListener('click', async () => {
   const isGlobal = skillModalScope === 'global'
   if (!isGlobal && !currentAgent) return
   const name = document.getElementById('skillName').value.trim()
-  if (!name) { document.getElementById('skillName').focus(); return }
+  if (!name) {
+    document.getElementById('skillName').focus()
+    showToast(t('skills.toast.name_required'))
+    return
+  }
+  const description = document.getElementById('skillDescription').value.trim()
+  if (!description) {
+    document.getElementById('skillDescription').focus()
+    showToast(t('skills.toast.desc_required'))
+    return
+  }
 
   const btn = document.getElementById('saveSkillBtn')
   btn.disabled = true
@@ -6870,12 +6885,12 @@ document.getElementById('saveSkillBtn').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name,
-        description: document.getElementById('skillDescription').value.trim(),
+        description,
       }),
     })
     if (!res.ok) {
       const err = await res.json()
-      throw new Error(err.error || 'Hiba')
+      throw new Error(err.error || t('common.error'))
     }
     const created = await res.json().catch(() => ({}))
     closeModal(skillModalOverlay)
@@ -6886,7 +6901,7 @@ document.getElementById('saveSkillBtn').addEventListener('click', async () => {
       loadSkills(agentApiName())
     }
   } catch (err) {
-    showToast(`Hiba: ${err.message}`)
+    showToast(`${t('common.error')}: ${err.message}`)
   } finally {
     btn.disabled = false
     btn.querySelector('.btn-text').hidden = false
@@ -12181,7 +12196,10 @@ function formatMtime(ms) {
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-document.getElementById('skillDetailClose').addEventListener('click', () => closeModal(skillDetailOverlay))
+document.getElementById('skillDetailClose').addEventListener('click', async () => {
+  if (!(await _skillDetailConfirmDiscard())) return
+  closeModal(skillDetailOverlay)
+})
 attachOverlayCloseGuard(skillDetailOverlay)
 
 // Scope for the next skill create/import action. 'global' means the
@@ -12575,6 +12593,25 @@ let _skillDetailCurrentName = null
 let _skillDetailCurrentAgentId = null
 let _skillDetailIsPlugin = false
 
+// The content as last loaded or saved. An edit that differs from it is unsaved: Cancel and the close
+// button ask before dropping it, and a confirmed Cancel puts this back, so a later Edit starts clean.
+let _skillDetailSavedContent = ''
+
+function _skillDetailHasUnsavedEdit() {
+  const editor = document.getElementById('skillDetailEditor')
+  return !editor.hidden && editor.value !== _skillDetailSavedContent
+}
+
+async function _skillDetailConfirmDiscard() {
+  if (!_skillDetailHasUnsavedEdit()) return true
+  return confirmDialog({
+    title: t('skills.confirm.discard_edit_title'),
+    message: t('skills.confirm.discard_edit'),
+    okLabel: t('skills.confirm.discard_edit_ok'),
+    danger: true,
+  })
+}
+
 function _skillDetailExitEdit() {
   const editor = document.getElementById('skillDetailEditor')
   const contentEl = document.getElementById('skillDetailContent')
@@ -12681,6 +12718,7 @@ async function openSkillDetail(skillName, displayLabel, agentId = null) {
     // Prefill editor
     const editor = document.getElementById('skillDetailEditor')
     if (editor) editor.value = rawContent
+    _skillDetailSavedContent = rawContent
 
   } catch (err) {
     console.error('Skill detail hiba:', err)
@@ -12715,7 +12753,11 @@ async function openSkillDetail(skillName, displayLabel, agentId = null) {
   }
 
   if (cancelBtn) {
-    cancelBtn.addEventListener('click', _skillDetailExitEdit)
+    cancelBtn.addEventListener('click', async () => {
+      if (!(await _skillDetailConfirmDiscard())) return
+      editor.value = _skillDetailSavedContent
+      _skillDetailExitEdit()
+    })
   }
 
   if (saveBtn) {
@@ -12734,6 +12776,7 @@ async function openSkillDetail(skillName, displayLabel, agentId = null) {
         })
         if (!res.ok) throw new Error('PUT failed: ' + res.status)
         contentEl.innerHTML = renderMarkdown(newContent)
+        _skillDetailSavedContent = newContent
         _skillDetailExitEdit()
         showToast(t('skills.toast.saved'))
         // Refresh list to pick up new description/keywords

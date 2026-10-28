@@ -6049,6 +6049,13 @@ a.oss-inv-name:hover { text-decoration: underline; }
   margin-top: 10px;
 }
 
+/* The skill detail modal hides these by the hidden attribute (no keywords, no
+   agents, not editing); the display rules above would otherwise keep them on
+   screen, and the edit row's Cancel would look dead. */
+.skill-detail-keywords[hidden] { display: none; }
+.skill-detail-agents-coverage[hidden] { display: none; }
+.skill-detail-edit-actions[hidden] { display: none; }
+
 .skill-detail-rendered {
   white-space: normal;
   font-family: var(--font-sans, inherit);

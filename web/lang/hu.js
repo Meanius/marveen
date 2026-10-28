@@ -862,6 +862,9 @@ window._i18n.hu = {
   'skills.btn.export':           'Exportálás',
   'skills.toast.saved':          'Skill elmentve',
   'skills.toast.save_error':     'Mentés sikertelen',
+  'skills.confirm.discard_edit_title': 'Mentetlen módosítás',
+  'skills.confirm.discard_edit': 'A skill tartalmán végzett módosításaid nincsenek elmentve. Elveted őket?',
+  'skills.confirm.discard_edit_ok': 'Módosítások elvetése',
   'skills.search.placeholder':   'Keresés...',
   'skills.filter.all':           'Összes',
   'skills.filter.user':          'User',
@@ -1781,6 +1784,8 @@ window._i18n.hu = {
   // --- Skills toasts ---
   'skills.toast.added':          'Skill hozzáadva',
   'skills.toast.select_file':    'Válassz egy .skill fájlt',
+  'skills.toast.name_required': 'Add meg a skill nevét.',
+  'skills.toast.desc_required': 'Írd le, mit csináljon a skill.',
 
   // --- Tasks toasts ---
   'tasks.toast.select_schedule': 'Válassz ütemezést',

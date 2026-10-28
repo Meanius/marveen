@@ -610,6 +610,9 @@ window._i18n.en = {
   'skills.btn.export':           'Export',
   'skills.toast.saved':          'Skill saved',
   'skills.toast.save_error':     'Save failed',
+  'skills.confirm.discard_edit_title': 'Unsaved changes',
+  'skills.confirm.discard_edit': 'Your changes to the skill content are not saved. Discard them?',
+  'skills.confirm.discard_edit_ok': 'Discard changes',
   'skills.search.placeholder':   'Search...',
   'skills.filter.all':           'All',
   'skills.filter.user':          'User',
@@ -1778,6 +1781,8 @@ window._i18n.en = {
   // --- Skills toasts ---
   'skills.toast.added':          'Skill added',
   'skills.toast.select_file':    'Select a .skill file',
+  'skills.toast.name_required': 'Enter the skill name.',
+  'skills.toast.desc_required': 'Describe what the skill should do.',
 
   // --- Tasks toasts ---
   'tasks.toast.select_schedule': 'Select a schedule',
