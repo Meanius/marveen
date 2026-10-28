@@ -3233,10 +3233,13 @@ export function startScheduleRunner(): NodeJS.Timeout {
     tickRunning = true
     try {
     // Scheduled-task registry: only tasks whose files hash-match the server-owned registry
-    // are considered at all (cron fires, catch-ups AND pending retries -- a
-    // retry of a task that was tampered with after queueing finds no taskDef
-    // and is dropped like a deleted task).
-    const tasks = filterRegisteredTasks(listScheduledTasks(), sendRegistrySkipNotice)
+    // are considered at all (cron fires, catch-ups AND pending retries). A
+    // pending retry of a task that is still on disk and enabled but currently
+    // refused by the gate (e.g. edited after queueing) is KEPT, not fired: it
+    // fires once the task passes the gate again. A retry of a task that is gone
+    // from disk or disabled is dropped.
+    const onDisk = listScheduledTasks()
+    const tasks = filterRegisteredTasks(onDisk, sendRegistrySkipNotice)
     const now = Date.now()
     // Scan the real interval elapsed since the previous tick (30 min on the
     // first tick), not a fixed 60s window -- a late/dropped tick must not let a
@@ -3485,6 +3488,15 @@ export function startScheduleRunner(): NodeJS.Timeout {
       // retry silently -- nothing to fire.
       const taskDef = tasks.find(t => t.name === row.task_name)
       if (!taskDef) {
+        // A task still on disk that the registry gate skipped is NOT gone: the
+        // skip can be transient (an updater mid-refresh, a one-off
+        // registry-error) or end with the operator re-registering it. Keep its
+        // retry; it fires (the registered content) once the gate passes again.
+        // Not for a DISABLED on-disk task: the operator's disable drops the
+        // retry (as below), else re-registering and enabling it later would
+        // fire the stale retry at once. Matched on `name`, the key the retry
+        // rows are written under (insertPendingTaskRetryIfNew(task.name, ...)).
+        if (onDisk.some(t => t.name === row.task_name && t.enabled !== false)) continue
         deletePendingTaskRetry(row.task_name, row.agent_name)
         continue
       }
