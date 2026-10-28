@@ -269,6 +269,46 @@ describe('the kanban deletes use it', () => {
   })
 })
 
+// Fifth block: the skill approval queue (Skills page, a generated skill waiting for approval). Rejecting
+// deletes its files, so it is a danger dialog; installing it is not.
+describe('the skill approval queue uses it', () => {
+  const SITES = [
+    ['install a pending skill', "approve.addEventListener('click', async () => {", 'skills.pending.confirm_approve', false],
+    ['reject a pending skill', "reject.addEventListener('click', async () => {", 'skills.pending.confirm_reject', true],
+  ] as const
+
+  it.each(SITES)('%s: a confirmDialog with its own title and button, no native confirm()', (_name, anchor, key, danger) => {
+    const i = APP.indexOf(anchor)
+    const src = i < 0 ? '' : APP.slice(i, APP.indexOf('try {', i))
+    expect(src.length).toBeGreaterThan(50)
+    expect(src).toContain('await confirmDialog({')
+    expect(src).toContain(`title: t('${key}_title')`)
+    expect(src).toContain(`message: t('${key}'`)
+    expect(src).toContain(`okLabel: t('${key}_ok')`)
+    if (danger) expect(src).toContain('danger: true')
+    else expect(src).not.toContain('danger:')
+    expect(src).not.toMatch(/(^|[^.\w])confirm\(/)
+  })
+
+  it.each(SITES)('%s: a "no" stops it -- the answer is checked before the request', (_name, anchor) => {
+    const request = 'fetch(`/api/skills/pending/'
+    const i = APP.indexOf(anchor)
+    const j = i < 0 ? -1 : APP.indexOf(request, i)
+    const body = i < 0 || j < 0 ? '' : APP.slice(i, j + request.length)
+    expect(body, 'handler or its request not found').not.toBe('')
+    const ask = body.indexOf('const confirmed = await confirmDialog({')
+    const guard = body.indexOf('if (!confirmed) return')
+    expect(ask).toBeGreaterThan(-1)
+    expect(guard).toBeGreaterThan(ask)
+    expect(body.slice(0, guard)).not.toMatch(/\bfetch\(/)
+  })
+
+  it.each(SITES.flatMap(([, , key]) => [key, `${key}_title`, `${key}_ok`]))('%s is in both languages', (key) => {
+    expect(HU).toContain(`'${key}':`)
+    expect(EN).toContain(`'${key}':`)
+  })
+})
+
 // The SHIPPED guard and overlayHasUnsavedInput, against a fake overlay, with confirmDialog injected.
 describe('the unsaved-input guard on a modal backdrop', () => {
   const gStart = APP.indexOf('function overlayHasUnsavedInput(')

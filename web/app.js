@@ -12338,7 +12338,12 @@ function renderPendingSkills(box, list) {
     const reject = pendingEl('button', 'btn-danger btn-compact', t('skills.pending.reject'))
     approve.disabled = !p.approvable
     approve.addEventListener('click', async () => {
-      if (!confirm(t('skills.pending.confirm_approve', { name: p.name, where }))) return
+      const confirmed = await confirmDialog({
+        title: t('skills.pending.confirm_approve_title'),
+        message: t('skills.pending.confirm_approve', { name: p.name, where }),
+        okLabel: t('skills.pending.confirm_approve_ok'),
+      })
+      if (!confirmed) return
       approve.disabled = true
       try {
         const res = await fetch(`/api/skills/pending/${encodeURIComponent(p.id)}/approve`, {
@@ -12356,7 +12361,13 @@ function renderPendingSkills(box, list) {
       } finally { approve.disabled = !p.approvable }
     })
     reject.addEventListener('click', async () => {
-      if (!confirm(t('skills.pending.confirm_reject', { name: p.name }))) return
+      const confirmed = await confirmDialog({
+        title: t('skills.pending.confirm_reject_title'),
+        message: t('skills.pending.confirm_reject', { name: p.name }),
+        okLabel: t('skills.pending.confirm_reject_ok'),
+        danger: true,
+      })
+      if (!confirmed) return
       reject.disabled = true
       try {
         const res = await fetch(`/api/skills/pending/${encodeURIComponent(p.id)}/reject`, { method: 'POST' })
