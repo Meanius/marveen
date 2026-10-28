@@ -219,3 +219,110 @@ describe('the agent actions use it', () => {
     expect(EN).toContain(`'${key}':`)
   })
 })
+
+// Third block: the kanban card and subtask delete, and the shared unsaved-input guard on every modal's
+// backdrop (attachOverlayCloseGuard).
+describe('the kanban deletes use it', () => {
+  const handler = (anchor: string, endMarker: string) => {
+    const i = APP.indexOf(anchor)
+    return i < 0 ? '' : APP.slice(i, APP.indexOf(endMarker, i))
+  }
+  const CARD_DELETE = handler("document.getElementById('cardDeleteBtn').onclick = async () => {", 'try {')
+  const SUBTASK_DELETE = handler('delBtn.onclick = async (e) => {', 'try {')
+
+  it.each([
+    ['delete a card', CARD_DELETE, 'kanban.confirm.delete'],
+    ['delete a subtask', SUBTASK_DELETE, 'kanban.confirm.delete_subtask'],
+  ])('%s: a danger confirmDialog with its own title and button, no native confirm()', (_name, src, key) => {
+    expect(src.length).toBeGreaterThan(50)
+    expect(src).toContain('await confirmDialog({')
+    expect(src).toContain(`title: t('${key}_title')`)
+    expect(src).toContain(`okLabel: t('${key}_ok')`)
+    expect(src).toContain('danger: true')
+    expect(src).not.toMatch(/(^|[^.\w])confirm\(/)
+  })
+
+  // Review of #2247: the pins above prove that each button asks, not that the answer counts. With the
+  // `if (!confirmed) return` removed on the card delete, "Mégse" would still delete the card and every
+  // test stayed green. So: the answer of THIS confirmDialog is checked, and returns, before the DELETE.
+  it.each([
+    ['delete a card', "document.getElementById('cardDeleteBtn').onclick = async () => {", "{ method: 'DELETE' })"],
+    ['delete a subtask', 'delBtn.onclick = async (e) => {', "{ method: 'DELETE' })"],
+  ])('%s: a "no" stops it -- the answer is checked before the request', (_name, anchor, request) => {
+    const i = APP.indexOf(anchor)
+    const j = i < 0 ? -1 : APP.indexOf(request, i)
+    const body = i < 0 || j < 0 ? '' : APP.slice(i, j + request.length)
+    expect(body, 'handler or its request not found').not.toBe('')
+    const ask = body.indexOf('const confirmed = await confirmDialog({')
+    const guard = body.indexOf('if (!confirmed) return')
+    expect(ask).toBeGreaterThan(-1)
+    expect(guard).toBeGreaterThan(ask)
+    expect(body.slice(0, guard)).not.toMatch(/\bfetch\(/)
+  })
+
+  it.each([
+    'kanban.confirm.delete_title', 'kanban.confirm.delete_ok', 'kanban.confirm.delete_subtask_title', 'kanban.confirm.delete_subtask_ok',
+    'common.confirm.unsaved_title', 'common.confirm.unsaved', 'common.confirm.unsaved_ok',
+  ])('%s is in both languages', (key) => {
+    expect(HU).toContain(`'${key}':`)
+    expect(EN).toContain(`'${key}':`)
+  })
+})
+
+// The SHIPPED guard and overlayHasUnsavedInput, against a fake overlay, with confirmDialog injected.
+describe('the unsaved-input guard on a modal backdrop', () => {
+  const gStart = APP.indexOf('function overlayHasUnsavedInput(')
+  const gEnd = APP.indexOf('\n}\n', APP.indexOf('function attachOverlayCloseGuard(')) + 3
+  const GUARD = APP.slice(gStart, gEnd)
+
+  async function backdropClick(fieldValue: string, answer: boolean, target: 'overlay' | 'inside' = 'overlay') {
+    let listener: ((e: { target: unknown }) => Promise<void>) | null = null
+    const field = { offsetParent: {}, value: fieldValue }
+    const overlay = {
+      querySelectorAll: () => [field],
+      addEventListener: (_ev: string, fn: (e: { target: unknown }) => Promise<void>) => { listener = fn },
+    }
+    const asked: { title: string; okLabel: string; danger?: boolean }[] = []
+    const closed: unknown[] = []
+    const confirmDialog = async (o: { title: string; okLabel: string; danger?: boolean }) => { asked.push(o); return answer }
+    const confirm = () => { throw new Error('native confirm() called') }
+    const attach = new Function('confirmDialog', 'confirm', 'closeModal', 't', `${GUARD}\nreturn attachOverlayCloseGuard`)(
+      confirmDialog, confirm, (o: unknown) => { closed.push(o) }, (k: string) => k,
+    ) as (o: unknown) => void
+    attach(overlay)
+    await listener!({ target: target === 'overlay' ? overlay : {} })
+    return { asked, closed: closed.length }
+  }
+
+  it('the guard is found in web/app.js', () => {
+    expect(gStart).toBeGreaterThan(-1)
+    expect(GUARD).toContain('function attachOverlayCloseGuard(')
+  })
+
+  it('an empty form closes on a backdrop click, without a dialog', async () => {
+    expect(await backdropClick('', false)).toEqual({ asked: [], closed: 1 })
+    expect(await backdropClick('   ', false)).toEqual({ asked: [], closed: 1 })
+  })
+
+  it('typed text asks first, with a danger button; "no" keeps the modal open', async () => {
+    const r = await backdropClick('half a page of notes', false)
+    expect(r.asked).toEqual([expect.objectContaining({ title: 'common.confirm.unsaved_title', okLabel: 'common.confirm.unsaved_ok', danger: true })])
+    expect(r.closed).toBe(0)
+  })
+
+  it('typed text and "yes" closes the modal', async () => {
+    expect((await backdropClick('half a page of notes', true)).closed).toBe(1)
+  })
+
+  it('a click inside the modal is not a backdrop click', async () => {
+    expect(await backdropClick('half a page of notes', true, 'inside')).toEqual({ asked: [], closed: 0 })
+  })
+})
+
+describe('kanban: the Hungarian texts say "alfeladat", not "subtask"', () => {
+  it.each(['kanban.modal.subtasks_title', 'kanban.breakdown.created_count', 'kanban.breakdown.accept_btn'])('%s', (key) => {
+    const line = HU.split('\n').find((l) => l.includes(`'${key}':`)) ?? ''
+    expect(line).toMatch(/lfeladat/)
+    expect(line.slice(line.indexOf(':'))).not.toMatch(/subtask/i)
+  })
+})

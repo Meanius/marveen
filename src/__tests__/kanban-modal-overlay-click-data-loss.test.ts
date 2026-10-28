@@ -51,9 +51,13 @@ describe('modal backdrop click must not silently discard unsaved input', () => {
   it('a shared guard checks for unsaved input before closing on backdrop click', () => {
     expect(src).toMatch(/function\s+overlayHasUnsavedInput\s*\(/)
     expect(src).toMatch(/function\s+attachOverlayCloseGuard\s*\(/)
-    // the guard must actually gate on a confirm() -- not just check and ignore
+    // the guard must actually gate on a confirmation -- not just check and ignore.
+    // Since the confirm-dialog blocks it is the app's own confirmDialog, not the
+    // native confirm(); its behaviour is driven in confirm-dialog.test.ts.
     const guardBody = src.slice(src.indexOf('function attachOverlayCloseGuard'))
-    expect(guardBody.slice(0, 400)).toMatch(/confirm\(/)
+    const guard = guardBody.slice(0, guardBody.indexOf('\n}\n'))
+    expect(guard).toMatch(/await confirmDialog\(\{/)
+    expect(guard).not.toMatch(/(^|[^.\w])confirm\(/)
   })
 
   it('every measured overlay is wired through the shared guard', () => {

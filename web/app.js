@@ -2998,7 +2998,13 @@ async function showCardDetail(card) {
 
   // Delete
   document.getElementById('cardDeleteBtn').onclick = async () => {
-    if (!confirm(t('kanban.confirm.delete'))) return
+    const confirmed = await confirmDialog({
+      title: t('kanban.confirm.delete_title'),
+      message: t('kanban.confirm.delete'),
+      okLabel: t('kanban.confirm.delete_ok'),
+      danger: true,
+    })
+    if (!confirmed) return
     try {
       await fetch(`/api/kanban/${encodeURIComponent(card.id)}`, { method: 'DELETE' })
       closeModal(cardDetailOverlay)
@@ -3064,7 +3070,13 @@ async function showCardDetail(card) {
           delBtn.textContent = t('kanban.modal.delete_btn')
           delBtn.onclick = async (e) => {
             e.stopPropagation()
-            if (!confirm(t('kanban.confirm.delete_subtask', { title: ch.title }))) return
+            const confirmed = await confirmDialog({
+              title: t('kanban.confirm.delete_subtask_title'),
+              message: t('kanban.confirm.delete_subtask', { title: ch.title }),
+              okLabel: t('kanban.confirm.delete_subtask_ok'),
+              danger: true,
+            })
+            if (!confirmed) return
             try {
               const r = await fetch(`/api/kanban/${encodeURIComponent(ch.id)}`, { method: 'DELETE' })
               if (!r.ok) { showToast(t('common.error_delete')); return }
@@ -3296,11 +3308,20 @@ function overlayHasUnsavedInput(overlay) {
 }
 
 // Backdrop click closes the modal only if it has no unsaved input; if it
-// does, a confirm() gates the close so the click has to be deliberate.
+// does, a confirm dialog gates the close so the click has to be deliberate.
+// The dialog opens on top of this modal; its own backdrop click is a "no".
 function attachOverlayCloseGuard(overlay) {
-  overlay.addEventListener('click', (e) => {
+  overlay.addEventListener('click', async (e) => {
     if (e.target !== overlay) return
-    if (overlayHasUnsavedInput(overlay) && !confirm('Van be nem mentett szöveg -- biztosan bezárod mentés nélkül?')) return
+    if (overlayHasUnsavedInput(overlay)) {
+      const confirmed = await confirmDialog({
+        title: t('common.confirm.unsaved_title'),
+        message: t('common.confirm.unsaved'),
+        okLabel: t('common.confirm.unsaved_ok'),
+        danger: true,
+      })
+      if (!confirmed) return
+    }
     closeModal(overlay)
   })
 }
