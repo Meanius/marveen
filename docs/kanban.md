@@ -117,9 +117,9 @@ Adatfolyam: `src/config.ts` → `/api/marveen` (`kanbanWip` kulcs) → `window._
 A webes dashboard (`http://localhost:3420`) kártyaszerkesztőjének főbb viselkedései:
 
 - **Komment-szerző default:** az új komment szerzőjeként az elsődleges humán felelős jelenik meg előre kiválasztva (az `owner` típusú assignee), nem a bot.
-- **Alfeladat hozzáadás:** szülő-kártyánál (nem alfeladatnál) „Új alfeladat" form jelenik meg. Az új alfeladat a szülő aktuális státuszát örökli. `done` státuszú szülőhöz nem lehet alfeladatot hozzáadni.
-- **Alfeladat törlés:** alfeladatok soránál Törlés gomb jelenik meg, megerősítő párbeszéddel. `done` státuszú szülőnél a gomb nem jelenik meg.
-- **Szülő-feladat szerkesztése:** alfeladat részletező nézetében (`planned` és `waiting` státusznál) legördülő menüből a szülő-hozzárendelés módosítható vagy leválasztható. A menü a szülőt a kártya-tulajdonságok sorában mutatja, teljes szélességben.
+- **Részfeladat hozzáadás:** szülő-kártyánál (nem részfeladatnál) „Új részfeladat" form jelenik meg. Az új részfeladat a szülő aktuális státuszát örökli. `done` státuszú szülőhöz nem lehet részfeladatot hozzáadni.
+- **Részfeladat törlés:** részfeladatok soránál Törlés gomb jelenik meg, megerősítő párbeszéddel. `done` státuszú szülőnél a gomb nem jelenik meg.
+- **Szülő-feladat szerkesztése:** részfeladat részletező nézetében (`planned` és `waiting` státusznál) legördülő menüből a szülő-hozzárendelés módosítható vagy leválasztható. A menü a szülőt a kártya-tulajdonságok sorában mutatja, teljes szélességben.
 
 ### Beakadt kártyák vizuális jelzése
 

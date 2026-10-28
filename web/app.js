@@ -19273,7 +19273,7 @@ async function openIdeaBreakdown(id) {
     const res = await fetch(`/api/ideas/${id}/breakdown`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
     const data = await res.json()
     if (!res.ok) { showToast(data.error || 'Breakdown hiba'); return }
-    if (!data.subtasks || !data.subtasks.length) { showToast('Az AI nem adott vissza alfeladatot'); return }
+    if (!data.subtasks || !data.subtasks.length) { showToast('Az AI nem adott vissza részfeladatot'); return }
     breakdownMode = 'idea'
     breakdownIdeaId = id
     breakdownSubtasks = data.subtasks

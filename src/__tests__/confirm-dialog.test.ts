@@ -319,10 +319,20 @@ describe('the unsaved-input guard on a modal backdrop', () => {
   })
 })
 
-describe('kanban: the Hungarian texts say "alfeladat", not "subtask"', () => {
+describe('kanban: the Hungarian texts say "részfeladat", not "subtask" or "alfeladat"', () => {
   it.each(['kanban.modal.subtasks_title', 'kanban.breakdown.created_count', 'kanban.breakdown.accept_btn'])('%s', (key) => {
     const line = HU.split('\n').find((l) => l.includes(`'${key}':`)) ?? ''
-    expect(line).toMatch(/lfeladat/)
+    expect(line).toMatch(/észfeladat/)
     expect(line.slice(line.indexOf(':'))).not.toMatch(/subtask/i)
+  })
+
+  it('no Hungarian UI text says "alfeladat" any more', () => {
+    expect(HU).not.toMatch(/alfeladat/i)
+  })
+
+  // Review of #2248: the README said "alfeladat-beágyazás" too; the docs a reader opens first follow the
+  // same word as the board.
+  it.each(['README.md', 'docs/kanban.md', 'docs/ideabox.md'])('%s does not say "alfeladat" either', (file) => {
+    expect(readFileSync(new URL(`../../${file}`, import.meta.url), 'utf-8')).not.toMatch(/alfeladat/i)
   })
 })
