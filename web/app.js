@@ -6782,7 +6782,13 @@ async function loadSkills(agentName) {
       const delBtn = item.querySelector('.btn-icon-danger')
       if (delBtn) {
         delBtn.addEventListener('click', async () => {
-          if (!confirm(t('skills.confirm.delete', { name: skill.name }))) return
+          const confirmed = await confirmDialog({
+            title: t('skills.confirm.delete_title'),
+            message: t('skills.confirm.delete', { name: skill.name }),
+            okLabel: t('skills.confirm.delete_ok'),
+            danger: true,
+          })
+          if (!confirmed) return
           try {
             await fetch(`/api/agents/${encodeURIComponent(agentName)}/skills/${encodeURIComponent(skill.name)}`, { method: 'DELETE' })
             showToast(t('skills.toast.deleted'))
@@ -7363,7 +7369,13 @@ function makeScheduleRow(task) {
 
     row.querySelector('[data-action="delete"]').addEventListener('click', async (e) => {
       e.stopPropagation()
-      if (!confirm(t('tasks.confirm.task_delete'))) return
+      const confirmed = await confirmDialog({
+        title: t('tasks.confirm.task_delete_title'),
+        message: t('tasks.confirm.task_delete', { name: task.description || task.name }),
+        okLabel: t('tasks.confirm.task_delete_ok'),
+        danger: true,
+      })
+      if (!confirmed) return
       try {
         await fetch(`/api/schedules/${encodeURIComponent(task.name)}`, { method: 'DELETE' })
         showToast(t('tasks.toast.deleted'))
@@ -8143,7 +8155,13 @@ function renderMemories(memories) {
     const delBtn = item.querySelector('.btn-danger')
     delBtn.addEventListener('click', async (e) => {
       e.stopPropagation()
-      if (!confirm('Biztosan torlod ezt az emleket?')) return
+      const confirmed = await confirmDialog({
+        title: t('memories.confirm.delete_title'),
+        message: t('memories.confirm.delete'),
+        okLabel: t('memories.confirm.delete_ok'),
+        danger: true,
+      })
+      if (!confirmed) return
       try {
         // MARVEENGAPS1020 (a): below data_delete level 3 the first DELETE files
         // an approval request (409 approval_required). Once it is approved, the

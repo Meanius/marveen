@@ -336,3 +336,47 @@ describe('kanban: the Hungarian texts say "részfeladat", not "subtask" or "alfe
     expect(readFileSync(new URL(`../../${file}`, import.meta.url), 'utf-8')).not.toMatch(/alfeladat/i)
   })
 })
+
+// Fourth block: the skill, schedule and memory deletes. The memory question was hard-coded, unaccented
+// Hungarian with no English; it is a lang key now.
+describe('the skill, schedule and memory deletes use it', () => {
+  const SITES = [
+    ['delete a skill', "const delBtn = item.querySelector('.btn-icon-danger')", 'skills.confirm.delete'],
+    ['delete a schedule', `row.querySelector('[data-action="delete"]').addEventListener('click'`, 'tasks.confirm.task_delete'],
+    ['delete a memory', "const delBtn = item.querySelector('.btn-danger')", 'memories.confirm.delete'],
+  ] as const
+
+  it.each(SITES)('%s: a danger confirmDialog with its own title and button, no native confirm()', (_name, anchor, key) => {
+    const i = APP.indexOf(anchor)
+    const src = i < 0 ? '' : APP.slice(i, APP.indexOf('try {', i))
+    expect(src.length).toBeGreaterThan(50)
+    expect(src).toContain('await confirmDialog({')
+    expect(src).toContain(`title: t('${key}_title')`)
+    expect(src).toContain(`message: t('${key}'`)
+    expect(src).toContain(`okLabel: t('${key}_ok')`)
+    expect(src).toContain('danger: true')
+    expect(src).not.toMatch(/(^|[^.\w])confirm\(/)
+  })
+
+  it.each(SITES)('%s: a "no" stops it -- the answer is checked before the request', (_name, anchor) => {
+    const request = "{ method: 'DELETE' })"
+    const i = APP.indexOf(anchor)
+    const j = i < 0 ? -1 : APP.indexOf(request, i)
+    const body = i < 0 || j < 0 ? '' : APP.slice(i, j + request.length)
+    expect(body, 'handler or its request not found').not.toBe('')
+    const ask = body.indexOf('const confirmed = await confirmDialog({')
+    const guard = body.indexOf('if (!confirmed) return')
+    expect(ask).toBeGreaterThan(-1)
+    expect(guard).toBeGreaterThan(ask)
+    expect(body.slice(0, guard)).not.toMatch(/\bfetch\(/)
+  })
+
+  it('the memory question is no longer hard-coded', () => {
+    expect(APP).not.toContain('Biztosan torlod ezt az emleket')
+  })
+
+  it.each(SITES.flatMap(([, , key]) => [key, `${key}_title`, `${key}_ok`]))('%s is in both languages', (key) => {
+    expect(HU).toContain(`'${key}':`)
+    expect(EN).toContain(`'${key}':`)
+  })
+})
