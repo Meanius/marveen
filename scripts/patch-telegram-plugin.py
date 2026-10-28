@@ -3,8 +3,10 @@
 Take /status and /help away from the Telegram channel plugin (ELSOKOR922 D-4),
 mark forwarded messages in the inbound meta (forwarded="1"), record every
 inbound message the bot receives (the evidence owner WRITE commands need),
-and -- only while TELEGRAM_TOPICS_ENABLED is on -- carry the topic of a
-message in and the answer back into it (see TOPICS_STEPS).
+strip the invisible Unicode characters a pasted or forwarded text can carry
+out of the text handed to the model, and -- only while
+TELEGRAM_TOPICS_ENABLED is on -- carry the topic of a message in and the
+answer back into it (see TOPICS_STEPS).
 
 The official plugin (claude-plugins-official/telegram/<ver>/server.ts) answers
 /status ("Paired as ...") and /help itself, inside its bot poller -- those
@@ -194,6 +196,48 @@ KBD_PATCH = {"name": "kbd", "marker": KBD_MARKER, "anchors": KBD_ANCHORS, "mode"
              "apply": lambda text: apply_kbd(text),  # defined below
              "fallback": "the reply tool has no buttons: a question goes out without them and is answered by typing"}
 
+# A forwarded or pasted text can carry characters a person cannot see but the
+# model reads (Unicode tag characters, "ASCII smuggling") or that reorder what
+# the reader sees (bidi controls). Exactly the Teams plugin's rule: walk the
+# text by code point and drop them, counting per class, so the meta says how
+# many went. Only the three RGI subdivision flags (England, Scotland, Wales)
+# stay whole; any other tag character is removed and counted. ZWJ, ZWNJ and the
+# variation selectors stay too, they carry meaning in visible text.
+# Four anchors, the first and third shared with evid and fwd: the const line
+# goes in before the channel notification (AFTER the evid line, so the evidence
+# log keeps the RAW text), the content spread overrides `content: text` (text
+# itself is never reassigned), the meta spread adds the invisible_* keys, and
+# the attachment_name line gets the same strip (its hidden characters are not counted).
+# No new import: only the language, over the handler's own `text`.
+INVIS_MARKER = "// MARVEEN-PATCH(invis1024): invisible characters stripped from inbound text"
+# One line of plain TypeScript Bun runs: __invisStrip(s) returns { text: <stripped>, meta: <counts> },
+# and __invis is that function applied to the inbound `text`.
+# Braces are doubled because apply_patch passes the insert through str.format.
+INVIS_COMPUTE = (
+    "const __invisStrip = (s: string) => {{ const cps = Array.from(s); "
+    "const n: Record<string, number> = {{ invisible_tag: 0, invisible_zwsp: 0, invisible_bidi: 0, invisible_bom: 0 }}; "
+    "const kept: string[] = []; "
+    "for (let i = 0; i < cps.length; i++) {{ const cp = cps[i].codePointAt(0)!; "
+    "if (cp === 0x1f3f4) {{ const rgi = [[0xe0067, 0xe0062, 0xe0065, 0xe006e, 0xe0067, 0xe007f], "
+    "[0xe0067, 0xe0062, 0xe0073, 0xe0063, 0xe0074, 0xe007f], "
+    "[0xe0067, 0xe0062, 0xe0077, 0xe006c, 0xe0073, 0xe007f]]; "
+    "if (rgi.some(seq => seq.every((c, k) => cps[i + 1 + k] != null && cps[i + 1 + k].codePointAt(0) === c))) "
+    "{{ kept.push(cps.slice(i, i + 7).join('')); i = i + 6; continue }} "
+    "kept.push(cps[i]); continue }} "
+    "if (cp >= 0xe0000 && cp <= 0xe007f) {{ n.invisible_tag++; continue }} "
+    "if (cp === 0x200b || (cp >= 0x2060 && cp <= 0x2064)) {{ n.invisible_zwsp++; continue }} "
+    "if (cp === 0xfeff) {{ n.invisible_bom++; continue }} "
+    "if ((cp >= 0x202a && cp <= 0x202e) || (cp >= 0x2066 && cp <= 0x2069)) {{ n.invisible_bidi++; continue }} "
+    "kept.push(cps[i]) }} "
+    "const meta: Record<string, string> = {{}}; "
+    "for (const k of Object.keys(n)) if (n[k] > 0) meta[k] = String(n[k]); "
+    "return {{ text: kept.join(''), meta }} }}; "
+    "const __invis = __invisStrip(text); "
+)
+INVIS_CONTENT_ANCHOR = ("channel content", re.compile(r"^( *)content: text,\n", re.MULTILINE))
+INVIS_ATTACHMENT_ANCHOR = ("inbound meta attachment_name", re.compile(
+    r"^( *)\.\.\.\(attachment\.name \? \{ attachment_name: attachment\.name \} : \{\}\),\n", re.MULTILINE))
+
 # Independent patches: each has its own marker and is all-or-nothing on its
 # own, so a plugin update that moves one anchor does not undo the other.
 PATCHES = [
@@ -208,6 +252,16 @@ PATCHES = [
     # an anchor may carry its own mode and insert (name, regex, mode, insert): the kbd lines differ.
     # "apply" replaces apply_patch for a patch that must also rebuild an older version of itself.
     KBD_PATCH,
+    # the four invis lines differ too, and share two regexes with evid and fwd
+    {"name": "invis", "marker": INVIS_MARKER, "mode": "insert-after",
+     "anchors": [
+         ("channel notification", EVID_ANCHOR[1], "insert-before", "{indent}" + INVIS_COMPUTE + INVIS_MARKER + "\n"),
+         (*INVIS_CONTENT_ANCHOR, "insert-after", "{indent}...{{ content: __invis.text }}, " + INVIS_MARKER + "\n"),
+         ("inbound meta user_id", FWD_ANCHOR[1], "insert-after", "{indent}...__invis.meta, " + INVIS_MARKER + "\n"),
+         (*INVIS_ATTACHMENT_ANCHOR, "insert-after",
+          "{indent}...(attachment.name ? {{ attachment_name: __invisStrip(attachment.name).text }} : {{}}), " + INVIS_MARKER + "\n"),
+     ],
+     "fallback": "inbound text reaches the model with its invisible characters"},
 ]
 
 # Topics (TELEGRAM_TOPICS_ENABLED, default off). A private chat with topic mode
