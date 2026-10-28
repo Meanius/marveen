@@ -32,6 +32,19 @@ afterEach(() => { rmSync(root, { recursive: true, force: true }) })
 
 const decide = (tool: string, input: Record<string, unknown>) =>
   gateDecision(tool, input, { allowlistPath: allowlist, cwd: root })
+// The fold only ADDS denials (nameForms in self-pace-gate.mjs): NFKC composes a
+// combining mark into the LETTER before it, so a mark right after a protected name, or
+// at the end of a command that ends in a letter, must not turn a denial into an allow.
+// (After `.` or `/` nothing composes, and the mark only names another directory.)
+const withMarks = (cmd: string): string[] => {
+  const names = /egress-allowlist\.json|egress-allowlist\.history|extra-hooks\.json|local-hooks/g
+  const out: string[] = []
+  for (const m of ['\u0301', '\u0303']) {
+    if (/\p{L}$/u.test(cmd)) out.push(cmd + m)
+    if (cmd.match(names)) out.push(cmd.replace(names, (n) => n + m))
+  }
+  return out
+}
 
 describe('gate: native file tools on the allowlist', () => {
   it.each(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])('%s on the file is denied, with the allowlist reason', (tool) => {
@@ -48,6 +61,50 @@ describe('gate: native file tools on the allowlist', () => {
   })
   it('another file in store/ is not affected', () => {
     expect(decide('Write', { file_path: join(store, 'other.json'), content: '{}' }).deny).toBe(false)
+  })
+})
+
+describe('gate: native file tools on the allowlist, any case (review #2001, round 3)', () => {
+  it.each([
+    ['Write', 'store/EGRESS-ALLOWLIST.JSON'],
+    ['Edit', 'store/Egress-Allowlist.json'],
+    ['Write', 'STORE/egress-allowlist.json'],
+    ['Edit', 'Store/Egress-allowlist.JSON'],
+  ])('%s %s is denied, relative and absolute', (tool, rel) => {
+    expect(decide(tool, { file_path: rel, content: '{}' })).toEqual({ deny: true, reason: 'egress-allowlist' })
+    expect(decide(tool, { file_path: join(root, rel), content: '{}' })).toEqual({ deny: true, reason: 'egress-allowlist' })
+  })
+  it('a dangling symlink to a not-yet-existing allowlist is read at its target', () => {
+    unlinkSync(allowlist)
+    symlinkSync(allowlist, join(root, 'innocent.json'))
+    expect(decide('Write', { file_path: join(root, 'innocent.json'), content: '{}' }).deny).toBe(true)
+  })
+  it('POSITIVE CONTROL: other files in store/, in any case, are not affected', () => {
+    expect(decide('Write', { file_path: join(store, 'Other.JSON'), content: '{}' }).deny).toBe(false)
+    expect(decide('Edit', { file_path: join(store, 'egress-allowlist.json.bak') }).deny).toBe(false)
+  })
+})
+
+// Review #2001 round 4: APFS reads U+017F LATIN SMALL LETTER LONG S as `s`, and
+// toLowerCase() leaves it alone, so egress-allowli\u017ft.json passed while the file did
+// not exist. The name is folded (foldName) before every comparison.
+describe('gate: the allowlist name is folded before it is compared (review #2001, round 4)', () => {
+  const LONG_S = '\u017f'
+  beforeEach(() => { unlinkSync(allowlist) })
+  it('Write to the long-s spelling with the file absent is denied, relative and absolute', () => {
+    const rel = `store/egress-allowli${LONG_S}t.json`
+    expect(decide('Write', { file_path: rel, content: '{}' })).toEqual({ deny: true, reason: 'egress-allowlist' })
+    expect(decide('Write', { file_path: join(root, rel), content: '{}' })).toEqual({ deny: true, reason: 'egress-allowlist' })
+  })
+  it.each([
+    `cp /tmp/x.json store/egress-allowli${LONG_S}t.json`,
+    `echo '{}' > store/egress-allowli${LONG_S}t.json`,
+    `rm -rf store/egress-allowli${LONG_S}t.hi${LONG_S}tory`,
+  ])('Bash %s is denied', (command) => {
+    expect(decide('Bash', { command })).toEqual({ deny: true, reason: 'egress-allowlist' })
+  })
+  it('POSITIVE CONTROL: a plain read through the folded name stays allowed', () => {
+    expect(decide('Bash', { command: `cat store/egress-allowli${LONG_S}t.json` }).deny).toBe(false)
   })
 })
 
@@ -76,6 +133,18 @@ describe('gate: Bash is fail-closed on the allowlist', () => {
     'echo x > store/egress-allowlist.history/history.log',
   ]
   it.each(denied)('denies: %s', (command) => {
+    expect(decide('Bash', { command })).toEqual({ deny: true, reason: 'egress-allowlist' })
+  })
+  // a case with nowhere for a mark to compose (a glob) is left out
+  it.each(denied.filter((c) => withMarks(c).length))('the fold never removes a denial: %s with a combining mark is still denied', (command) => {
+    for (const marked of withMarks(command)) {
+      expect(decide('Bash', { command: marked }), JSON.stringify(marked)).toEqual({ deny: true, reason: 'egress-allowlist' })
+    }
+  })
+  it.each([
+    `python3 -c "open('store/egress-allowlist.json\u0303'[:-1],'w')"`,
+    `python3 -c "open('store/egress-allowlist.json\u0303'.encode('ascii', 'ignore').decode(),'w')"`,
+  ])('a trailing combining mark that NFKC composes and the program drops again is denied (round 4 delta): %s', (command) => {
     expect(decide('Bash', { command })).toEqual({ deny: true, reason: 'egress-allowlist' })
   })
 
