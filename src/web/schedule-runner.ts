@@ -1384,6 +1384,70 @@ export type PreCheckResult = { skip: boolean; prefix?: string }
 
 // The preCheck script's time limit; over it the script is killed and the LLM runs anyway.
 export const PRECHECK_TIMEOUT_MS = 10_000
+// Ceiling for the per-task override below. The cron loop AWAITS the pre-check
+// under the tickRunning guard, so a slow script does not block the event loop
+// any more (runPreCheckAsync) but it still holds the NEXT tick.
+//
+// The ceiling is PER TASK, and the tick awaits the gates ONE AFTER ANOTHER, so
+// what a task at the end of a tick actually waits for is the SUM of the gates
+// before it -- not 60 s (review note on #2300). Treat the ceiling as a bound on
+// a single bad gate, not on the tick. Several network-crossing pre-checks due
+// in the same minute is a scheduling decision to make deliberately, and the
+// cheap way out of it is a gate that reads a state file somebody else refreshes.
+// 60 s leaves room for an ssh ConnectTimeout 15 plus the query; anything slower
+// is a job, not a gate.
+export const PRECHECK_MAX_TIMEOUT_MS = 60_000
+// Floor: a sub-second limit kills every real script and turns the gate into a
+// pure cost (fail-open after a spawn), which is worse than having no gate.
+export const PRECHECK_MIN_TIMEOUT_MS = 1_000
+
+// A task's pre-check time limit. Same clamp shape as resolveStuckTimeoutMs: an
+// unset/invalid/non-positive value takes the default, a configured one is
+// pinned into [PRECHECK_MIN_TIMEOUT_MS, maxMs]. Per task -- see the note on
+// PRECHECK_MAX_TIMEOUT_MS for what that does NOT bound.
+//
+// Why this is configurable at all: at the fixed 10 s a pre-check that crosses
+// the network is killed on every tick and fails open, so the gate costs a
+// round trip and saves nothing -- measured need: a heartbeat whose pre-check
+// opens an SSH session to a remote host (ConnectTimeout 15, overall 30).
+// A local state read stays on the 10 s default.
+export function resolvePreCheckTimeoutMs(
+  task: Pick<ScheduledTask, 'preCheckTimeoutSeconds'>,
+  defaultMs: number = PRECHECK_TIMEOUT_MS,
+  maxMs: number = PRECHECK_MAX_TIMEOUT_MS,
+): number {
+  const configured = task.preCheckTimeoutSeconds
+  if (typeof configured !== 'number' || !Number.isFinite(configured) || configured <= 0) return defaultMs
+  return Math.min(Math.max(configured * 1_000, PRECHECK_MIN_TIMEOUT_MS), maxMs)
+}
+
+// Where the pre-check script runs. It used to inherit the dashboard's own
+// working directory, which is a correctness bug for any script that derives
+// WHOSE state it is reading from the cwd: ledger-live-drain.py calls
+// ledger_lib.agent_id_from_cwd(os.getcwd()), so under the dashboard's cwd it
+// read the MAIN agent's ledger whatever agent the task targeted. On the main
+// agent (the only place it is deployed today) that happens to be the right
+// answer, which is exactly why the bug could sit here unseen: the first other
+// agent to get a cwd-sensitive pre-check would have silently gated on someone
+// else's state.
+//
+// 'all' keeps the old behaviour on purpose. The cron loop runs the pre-check
+// ONCE per task, not once per target, because the gate is documented as
+// reading state that does not vary by agent; a broadcast task therefore has no
+// single agent directory to name, and picking one of them would be a guess.
+// A cwd-sensitive pre-check on a broadcast task is a configuration error, not
+// something this function can resolve.
+export function preCheckCwd(task: Pick<ScheduledTask, 'agent'>): string {
+  const agentName = task.agent || MAIN_AGENT_ID
+  if (agentName === 'all' || agentName === MAIN_AGENT_ID) return PROJECT_ROOT
+  const dir = agentDir(agentName)
+  // Fall back rather than hand spawn a directory that is not there: an absent
+  // cwd makes spawn fail with ENOENT, which this file treats as fail-open, so
+  // a task pointed at a deleted agent would stop being gated at all and run
+  // the LLM every tick instead. A wrong-but-present cwd is the behaviour that
+  // shipped for years; silently switching the gate off is not.
+  return existsSync(dir) ? dir : PROJECT_ROOT
+}
 // spawnSync's default maxBuffer: a longer stdout fails the run the same way in both forms.
 const PRECHECK_MAX_STDOUT_BYTES = 1024 * 1024
 
@@ -1447,7 +1511,7 @@ export function runPreCheck(task: ScheduledTask): PreCheckResult {
   const inv = preCheckInvocation(task, scriptPath)
   if ('result' in inv) return inv.result
   try {
-    const r = spawnSync('bash', inv.args, { timeout: PRECHECK_TIMEOUT_MS, encoding: 'utf-8' })
+    const r = spawnSync('bash', inv.args, { timeout: resolvePreCheckTimeoutMs(task), cwd: preCheckCwd(task), encoding: 'utf-8' })
     if (r.error) {
       logger.warn({ task: task.name, error: r.error.message }, 'pre-check script spawn error, running LLM anyway')
       return { skip: false }
@@ -1524,7 +1588,7 @@ export function runPreCheckAsync(
   }
   const inv = preCheckInvocation(task, scriptPath)
   if ('result' in inv) return Promise.resolve(inv.result)
-  const timeoutMs = opts.timeoutMs ?? PRECHECK_TIMEOUT_MS
+  const timeoutMs = opts.timeoutMs ?? resolvePreCheckTimeoutMs(task)
   const maxStdoutBytes = opts.maxStdoutBytes ?? PRECHECK_MAX_STDOUT_BYTES
   return new Promise<PreCheckResult>((resolve) => {
     let settled = false
@@ -1539,7 +1603,7 @@ export function runPreCheckAsync(
     try {
       // detached: the script leads its own process group, so the limit can end
       // everything it started (endPreCheckGroup), not just bash.
-      child = spawn('bash', inv.args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+      child = spawn('bash', inv.args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true, cwd: preCheckCwd(task) })
     } catch (err) {
       logger.warn({ err, task: task.name }, 'pre-check script threw, running LLM anyway')
       settle({ skip: false })
