@@ -19,7 +19,11 @@ describe('main agent shell egress opt-out', () => {
   it('removes only the egress rules and keeps the operator\'s own deny entries', () => {
     const settings: Record<string, unknown> = { permissions: { deny: ['Bash(rm -rf /*)'] } }
     expect(mergeBashEgressDeny(settings)).toBe(true)
-    expect((settings.permissions as { deny: string[] }).deny.length).toBe(1 + BASH_EGRESS_DENY.length)
+    // merge may also add the legacy curl/wget rules (when the parser does not cover the agent),
+    // so assert the module's own rules are in, not an exact count.
+    const merged = (settings.permissions as { deny: string[] }).deny
+    expect(merged).toContain('Bash(rm -rf /*)')
+    for (const rule of BASH_EGRESS_DENY) expect(merged).toContain(rule)
     expect(removeBashEgressDeny(settings)).toBe(true)
     expect((settings.permissions as { deny: string[] }).deny).toEqual(['Bash(rm -rf /*)'])
     expect(removeBashEgressDeny(settings)).toBe(false)
