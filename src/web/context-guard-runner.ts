@@ -385,6 +385,18 @@ export function restartQueueAtRestart(name: string): { pending: number; failed: 
  * do real work (the drain answers a lost channel message when it finds one).
  * The restart itself is unaffected; only what we tell the reader changes.
  */
+// The breakdown only refines the staleness message and the heartbeat-is-not-work
+// rule; a failure to read it (unreadable transcript, or a test double without
+// this export) must never stop the sweep -- null means "not measured", which is
+// the pre-breakdown behaviour.
+function safeTurnBreakdownSince(name: string, sinceMs: number): TranscriptTurnBreakdown | null {
+  try {
+    return readTurnBreakdownSince(workingDirFor(name), sinceMs, configDirFor(name))
+  } catch {
+    return null
+  }
+}
+
 export function describeTurnsSinceHandoff(turns: TranscriptTurnBreakdown | null | undefined): string | null {
   if (!turns) return null
   if (turns.total === 0) return 'a handoff írása óta egyetlen forduló sem indult'
@@ -906,7 +918,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     turnsSinceHandoff:
       running && needPct && handoffMtimeValue !== null &&
       (state.phase === 'await-handoff' || paneSaturatedTrusted)
-        ? readTurnBreakdownSince(workingDirFor(name), handoffMtimeValue, configDirFor(name))
+        ? safeTurnBreakdownSince(name, handoffMtimeValue)
         : null,
     // Seed-on-first-ARMED-sight, forget-while-disarmed on every sweep, and the
     // open-question skip: dailyHandoffSkipSweep decides all three,
