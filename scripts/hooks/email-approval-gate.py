@@ -357,6 +357,40 @@ def manage_email_is_send(tool_input: dict) -> bool:
     return not _is_explicit_draft(tool_input)
 
 
+# Owner exemption (Meanius TG 6907, 2026-10-29): the company Graph sender keeps
+# its pre-1.45.0 behaviour -- a send the owner asks for goes without a per-letter
+# approval (his standing decision TG 5279). Deliberately hard-coded, not a store/
+# list: the agent can write store/, so a file would let it grant itself the right;
+# changing this needs a visible commit. Only ONE literal call passes: no shell
+# operator, no substitution, no second command, and the program path must be
+# exactly this script. Anything else falls through to the normal level check.
+_OWNER_EXEMPT_SENDERS = (
+    "/home/boki/projects/marveen/scripts/cobra-graph-send.py",
+)
+
+
+def owner_exempt_sender(cmd: str, cwd) -> bool:
+    import shlex
+    if not cmd or any(c in cmd for c in "\n`") or "$(" in cmd:
+        return False
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        tokens = list(lex)
+    except ValueError:
+        return False
+    if any(t and set(t) <= set("();<>|&") for t in tokens):
+        return False
+    if tokens and tokens[0] in ("python3", "/usr/bin/python3"):
+        tokens = tokens[1:]
+    if not tokens:
+        return False
+    path = tokens[0]
+    if not os.path.isabs(path):
+        path = os.path.join(str(cwd or ""), path)
+    return os.path.normpath(path) in _OWNER_EXEMPT_SENDERS
+
+
 def _load_is_send_invocation():
     """Import is_send_invocation from outgoing-copy-gate.py (dashed filename,
     so importlib by path). Single implementation: the same classifier that
@@ -1232,6 +1266,8 @@ def main():
     cmd = ""
     if tool == "Bash":
         cmd = str(tool_input.get("command") or "")
+        if owner_exempt_sender(cmd, payload.get("cwd")):
+            sys.exit(0)
         if not (_load_is_send_invocation()(cmd)
                 or _load_script_run_sends()(cmd, payload.get("cwd"))):
             sys.exit(0)
