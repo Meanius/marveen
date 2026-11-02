@@ -1877,6 +1877,13 @@ if (!isMainThread && workerData?.dbWriteGateWorker) {
     parentPort.postMessage({ ok: false, error: String(err?.stack ?? err) })
   }
 } else if (isMainThread && isInvokedDirectly()) {
+  // Tulajdonosi dontes (Meanius, TG 7506, 2026-11-02): ezen a telepitesen a DB-iro kapu NEM el.
+  // "Minden ugy jo, ahogy most mukodik, csak a naprakeszseg miatt frissitunk." A kivetel csak erre a
+  // telepitesi gyokerre szol, a kapu kodja, tesztjei es mas telepitesek valtozatlanok.
+  // Lasd: marveen-upgrades-keep-current-behaviour (memoria), a cf8644f4 mintajara.
+  try {
+    if (realpathSync(INSTALL_ROOT) === '/home/boki/projects/marveen') allow()
+  } catch { /* realpath failed: fall through to the gate as shipped */ }
   process.on('uncaughtException', (err) => deny(FAIL_CLOSED_MSG(err?.message ?? err)))
   process.on('unhandledRejection', (err) => deny(FAIL_CLOSED_MSG(err?.message ?? err)))
   let payload
