@@ -265,14 +265,14 @@ _SKILL_MD_IN_CMD_RE = re.compile(
 # whose source mentions the path, logged a read on 2026-08-30 -- twice for the
 # same commit, because the message was written twice. Only the part of the
 # command line BEFORE the first heredoc marker is treated as file access.
-_HEREDOC_RE = re.compile(r"<<-?\s*[\'\"]?\w+")
+_HEREDOC_HEAD_RE = re.compile(r"<<-?\s*[\'\"]?\w+")
 
 # `> path` / `>> path` immediately before the match means the file is written.
 _REDIRECT_BEFORE_RE = re.compile(r">>?\s*[\'\"]?$")
 
 
 def _command_head(command: str) -> str:
-    m = _HEREDOC_RE.search(command)
+    m = _HEREDOC_HEAD_RE.search(command)
     return command[:m.start()] if m else command
 
 
